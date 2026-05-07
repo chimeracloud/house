@@ -292,4 +292,4 @@ Full schema: [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/
 
 ## License
 
-Private repository — © 2025 Ascot Wealth Management. All rights reserved.
+Private repository — © 2026 Ascot Wealth Management. All rights reserved.
