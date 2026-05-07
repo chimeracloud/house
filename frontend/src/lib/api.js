@@ -6,8 +6,8 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
+api.interceptors.request.use(async (config) => {
+  const token = await useAuthStore.getState().getIdToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -16,21 +16,7 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     if (err.response?.status === 401) {
-      const { refreshToken, logout } = useAuthStore.getState();
-      if (refreshToken) {
-        try {
-          const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh`, {
-            refresh_token: refreshToken,
-          });
-          useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
-          err.config.headers.Authorization = `Bearer ${data.access_token}`;
-          return api.request(err.config);
-        } catch {
-          logout();
-        }
-      } else {
-        logout();
-      }
+      useAuthStore.getState().logout();
     }
     return Promise.reject(err);
   }

@@ -1,0 +1,17 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Ticket attachments — any authenticated user can read; any can upload (backend validates)
+    match /tickets/{ticketId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && request.resource.size < 20 * 1024 * 1024; // 20MB max
+    }
+  }
+}

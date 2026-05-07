@@ -38,3 +38,7 @@ coverage/
 # Misc
 *.pem
 .turbo
+
+# Firebase service account keys — NEVER commit
+*firebase-service-account*.json
+*service-account*.json

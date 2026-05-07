@@ -1,155 +1,74 @@
 import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
-import { supabase, supabaseAnon } from '../lib/supabase.js';
+import { auth, db, FieldValue } from '../lib/firebase.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// Register (contractor self-registration or admin invitation)
-router.post('/register',
-  body('email').isEmail(),
-  body('password').isLength({ min: 8 }),
-  body('full_name').notEmpty(),
-  body('role').isIn(['contractor', 'resident']),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const { email, password, full_name, role, phone, company_name } = req.body;
-
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name, role },
-    });
-
-    if (error) return res.status(400).json({ error: error.message });
-
-    await supabase.from('profiles').insert({
-      id: data.user.id,
-      full_name,
-      role,
-      phone,
-      company_name,
-    });
-
-    res.status(201).json({ message: 'Account created successfully', user_id: data.user.id });
-  }
-);
-
-// Login
-router.post('/login',
-  body('email').isEmail(),
-  body('password').notEmpty(),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const { email, password } = req.body;
-    const { data, error } = await supabaseAnon.auth.signInWithPassword({ email, password });
-
-    if (error) return res.status(401).json({ error: 'Invalid credentials' });
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-
-    res.json({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      user: { ...data.user, profile },
-    });
-  }
-);
-
-// Refresh token
-router.post('/refresh', async (req, res) => {
-  const { refresh_token } = req.body;
-  if (!refresh_token) return res.status(400).json({ error: 'refresh_token required' });
-
-  const { data, error } = await supabaseAnon.auth.refreshSession({ refresh_token });
-  if (error) return res.status(401).json({ error: 'Invalid refresh token' });
-
-  res.json({
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-  });
-});
-
-// Get current user
-router.get('/me', authenticate, async (req, res) => {
+// Get current user profile
+router.get('/me', authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
 // Update profile
 router.patch('/me', authenticate, async (req, res) => {
   const { full_name, phone, company_name, avatar_url } = req.body;
+  const updates = { updated_at: FieldValue.serverTimestamp() };
+  if (full_name !== undefined) updates.full_name = full_name;
+  if (phone !== undefined) updates.phone = phone;
+  if (company_name !== undefined) updates.company_name = company_name;
+  if (avatar_url !== undefined) updates.avatar_url = avatar_url;
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ full_name, phone, company_name, avatar_url, updated_at: new Date() })
-    .eq('id', req.user.id)
-    .select()
-    .single();
-
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ profile: data });
+  await db.collection('profiles').doc(req.user.uid).update(updates);
+  const snap = await db.collection('profiles').doc(req.user.uid).get();
+  res.json({ profile: { id: snap.id, ...snap.data() } });
 });
 
-// Admin: create staff users
+// Admin: create user
 router.post('/admin/users',
   authenticate,
   body('email').isEmail(),
   body('full_name').notEmpty(),
   body('role').isIn(['property_manager', 'property_owner', 'contractor', 'resident', 'admin']),
   async (req, res) => {
-    if (!['admin', 'property_owner'].includes(req.user.profile?.role)) {
+    if (!['admin', 'property_owner', 'property_manager'].includes(req.user.profile?.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { email, full_name, role, phone, company_name, password } = req.body;
 
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password: password || Math.random().toString(36).slice(-10) + 'A1!',
-      email_confirm: true,
-      user_metadata: { full_name, role },
-    });
+    try {
+      const userRecord = await auth.createUser({
+        email,
+        password: password || `Temp${Math.random().toString(36).slice(-8)}A1!`,
+        displayName: full_name,
+      });
 
-    if (error) return res.status(400).json({ error: error.message });
+      await db.collection('profiles').doc(userRecord.uid).set({
+        full_name, role, phone: phone || null,
+        company_name: company_name || null,
+        is_active: true,
+        created_at: FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp(),
+      });
 
-    await supabase.from('profiles').insert({
-      id: data.user.id,
-      full_name,
-      role,
-      phone,
-      company_name,
-    });
-
-    res.status(201).json({ message: 'User created', user_id: data.user.id });
+      res.status(201).json({ message: 'User created', user_id: userRecord.uid });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   }
 );
 
-// List all users (admin/manager/owner)
+// List all users (staff only)
 router.get('/admin/users', authenticate, async (req, res) => {
-  const role = req.user.profile?.role;
-  if (!['admin', 'property_owner', 'property_manager'].includes(role)) {
+  if (!['admin', 'property_owner', 'property_manager'].includes(req.user.profile?.role)) {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ users: data });
+  const snap = await db.collection('profiles').orderBy('created_at', 'desc').get();
+  const users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  res.json({ users });
 });
 
 export default router;

@@ -1,176 +1,118 @@
 import { Router } from 'express';
-import { body, validationResult } from 'express-validator';
-import { supabase } from '../lib/supabase.js';
+import { db, FieldValue } from '../lib/firebase.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
-// List contractors with performance stats
 router.get('/', authenticate, async (req, res) => {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select(`
-      *,
-      ratings:contractor_ratings(rating, category),
-      assigned_tickets:maintenance_tickets!maintenance_tickets_assigned_contractor_fkey(
-        id, status, created_at, updated_at
-      )
-    `)
-    .eq('role', 'contractor')
-    .order('full_name');
+  const snap = await db.collection('profiles').where('role', '==', 'contractor').get();
 
-  if (error) return res.status(400).json({ error: error.message });
+  const contractors = await Promise.all(snap.docs.map(async (doc) => {
+    const [ratingsSnap, ticketsSnap] = await Promise.all([
+      db.collection('contractor_ratings').where('contractor_id', '==', doc.id).get(),
+      db.collection('tickets').where('assigned_contractor', '==', doc.id).get(),
+    ]);
 
-  // Calculate avg rating per contractor
-  const contractors = data.map((c) => {
-    const ratings = c.ratings || [];
-    const avgRating = ratings.length
-      ? ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length
-      : null;
-
-    const tickets = c.assigned_tickets || [];
-    const completedTickets = tickets.filter((t) => ['completed', 'paid'].includes(t.status));
-    const completionRate = tickets.length
-      ? Math.round((completedTickets.length / tickets.length) * 100)
-      : null;
+    const ratings = ratingsSnap.docs.map((r) => r.data().rating);
+    const avgRating = ratings.length ? ratings.reduce((s, v) => s + v, 0) / ratings.length : null;
+    const tickets = ticketsSnap.docs.map((t) => t.data());
+    const completed = tickets.filter((t) => ['completed', 'paid'].includes(t.status)).length;
 
     return {
-      ...c,
+      id: doc.id, ...doc.data(),
       avg_rating: avgRating ? Math.round(avgRating * 10) / 10 : null,
       total_jobs: tickets.length,
-      completed_jobs: completedTickets.length,
-      completion_rate: completionRate,
+      completed_jobs: completed,
+      completion_rate: tickets.length ? Math.round((completed / tickets.length) * 100) : null,
     };
-  });
+  }));
 
   res.json({ contractors });
 });
 
-// Get contractor profile
 router.get('/:id', authenticate, async (req, res) => {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select(`
-      *,
-      ratings:contractor_ratings(
-        *,
-        ticket:maintenance_tickets(title),
-        rated_by:profiles!contractor_ratings_rated_by_fkey(full_name)
-      ),
-      quotations(id, status, total_amount, created_at, ticket:maintenance_tickets(title)),
-      assigned_tickets:maintenance_tickets!maintenance_tickets_assigned_contractor_fkey(
-        id, title, status, priority, created_at, updated_at
-      )
-    `)
-    .eq('id', req.params.id)
-    .eq('role', 'contractor')
-    .single();
+  const doc = await db.collection('profiles').doc(req.params.id).get();
+  if (!doc.exists || doc.data().role !== 'contractor') return res.status(404).json({ error: 'Contractor not found' });
 
-  if (error) return res.status(404).json({ error: 'Contractor not found' });
-  res.json({ contractor: data });
-});
-
-// Rate contractor
-router.post('/:id/rate',
-  authenticate,
-  requireRole('property_manager', 'property_owner', 'admin'),
-  body('ticket_id').isUUID(),
-  body('rating').isFloat({ min: 1, max: 5 }),
-  body('category').isIn(['quality', 'timeliness', 'communication', 'value', 'overall']),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const { ticket_id, rating, category, comment } = req.body;
-
-    // Check ticket is completed
-    const { data: ticket } = await supabase
-      .from('maintenance_tickets')
-      .select('id, assigned_contractor, status')
-      .eq('id', ticket_id)
-      .single();
-
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (!['completed', 'paid'].includes(ticket.status)) {
-      return res.status(400).json({ error: 'Can only rate completed work' });
-    }
-    if (ticket.assigned_contractor !== req.params.id) {
-      return res.status(400).json({ error: 'Contractor was not assigned to this ticket' });
-    }
-
-    const { data, error } = await supabase
-      .from('contractor_ratings')
-      .upsert({
-        contractor_id: req.params.id,
-        ticket_id,
-        rated_by: req.user.id,
-        rating: Number(rating),
-        category,
-        comment,
-      }, { onConflict: 'contractor_id,ticket_id,category' })
-      .select()
-      .single();
-
-    if (error) return res.status(400).json({ error: error.message });
-    res.status(201).json({ rating: data });
-  }
-);
-
-// Contractor performance analytics
-router.get('/:id/analytics', authenticate, async (req, res) => {
-  const [ratingsRes, ticketsRes, quotesRes] = await Promise.all([
-    supabase
-      .from('contractor_ratings')
-      .select('rating, category, created_at')
-      .eq('contractor_id', req.params.id),
-    supabase
-      .from('maintenance_tickets')
-      .select('id, status, created_at, updated_at, priority')
-      .eq('assigned_contractor', req.params.id),
-    supabase
-      .from('quotations')
-      .select('id, status, total_amount, created_at')
-      .eq('contractor_id', req.params.id),
+  const [ratingsSnap, quotesSnap, ticketsSnap] = await Promise.all([
+    db.collection('contractor_ratings').where('contractor_id', '==', req.params.id).get(),
+    db.collection('quotations').where('contractor_id', '==', req.params.id).get(),
+    db.collection('tickets').where('assigned_contractor', '==', req.params.id).get(),
   ]);
 
-  const ratings = ratingsRes.data || [];
-  const tickets = ticketsRes.data || [];
-  const quotes = quotesRes.data || [];
+  res.json({
+    contractor: {
+      id: doc.id, ...doc.data(),
+      ratings: ratingsSnap.docs.map((r) => ({ id: r.id, ...r.data() })),
+      quotations: quotesSnap.docs.map((q) => ({ id: q.id, ...q.data() })),
+      assigned_tickets: ticketsSnap.docs.map((t) => ({ id: t.id, ...t.data() })),
+    },
+  });
+});
 
-  const ratingsByCategory = {};
-  for (const r of ratings) {
-    if (!ratingsByCategory[r.category]) ratingsByCategory[r.category] = [];
-    ratingsByCategory[r.category].push(r.rating);
+router.post('/:id/rate', authenticate, requireRole('property_manager', 'property_owner', 'admin'), async (req, res) => {
+  const { ticket_id, rating, category, comment } = req.body;
+  if (!ticket_id || !rating || !category) return res.status(400).json({ error: 'ticket_id, rating and category required' });
+
+  // Upsert: check for existing rating
+  const existing = await db.collection('contractor_ratings')
+    .where('contractor_id', '==', req.params.id)
+    .where('ticket_id', '==', ticket_id)
+    .where('category', '==', category)
+    .limit(1).get();
+
+  const ratingData = {
+    contractor_id: req.params.id, ticket_id,
+    rated_by: req.user.uid,
+    rating: Number(rating), category,
+    comment: comment || null,
+    created_at: FieldValue.serverTimestamp(),
+  };
+
+  let ref;
+  if (!existing.empty) {
+    ref = existing.docs[0].ref;
+    await ref.update(ratingData);
+  } else {
+    ref = await db.collection('contractor_ratings').add(ratingData);
   }
-  const avgByCategory = Object.fromEntries(
-    Object.entries(ratingsByCategory).map(([cat, vals]) => [
-      cat,
-      Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10,
-    ])
-  );
 
-  const completedTickets = tickets.filter((t) => ['completed', 'paid'].includes(t.status));
-  const totalRevenue = quotes
-    .filter((q) => q.status === 'approved')
-    .reduce((sum, q) => sum + Number(q.total_amount), 0);
+  const snap = await ref.get();
+  res.status(201).json({ rating: { id: snap.id, ...snap.data() } });
+});
+
+router.get('/:id/analytics', authenticate, async (req, res) => {
+  const [ratingsSnap, ticketsSnap, quotesSnap] = await Promise.all([
+    db.collection('contractor_ratings').where('contractor_id', '==', req.params.id).get(),
+    db.collection('tickets').where('assigned_contractor', '==', req.params.id).get(),
+    db.collection('quotations').where('contractor_id', '==', req.params.id).get(),
+  ]);
+
+  const ratings = ratingsSnap.docs.map((d) => d.data());
+  const tickets = ticketsSnap.docs.map((d) => d.data());
+  const quotes = quotesSnap.docs.map((d) => d.data());
+
+  const byCategory = {};
+  ratings.forEach((r) => {
+    if (!byCategory[r.category]) byCategory[r.category] = [];
+    byCategory[r.category].push(r.rating);
+  });
+
+  const completed = tickets.filter((t) => ['completed', 'paid'].includes(t.status));
+  const approvedQuotes = quotes.filter((q) => q.status === 'approved');
 
   res.json({
-    avg_ratings_by_category: avgByCategory,
-    overall_avg: ratings.length
-      ? Math.round((ratings.reduce((s, r) => s + r.rating, 0) / ratings.length) * 10) / 10
-      : null,
+    avg_ratings_by_category: Object.fromEntries(
+      Object.entries(byCategory).map(([c, vals]) => [c, Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10])
+    ),
+    overall_avg: ratings.length ? Math.round((ratings.reduce((s, r) => s + r.rating, 0) / ratings.length) * 10) / 10 : null,
     total_jobs: tickets.length,
-    completed_jobs: completedTickets.length,
-    pending_jobs: tickets.filter((t) => t.status === 'in_progress').length,
-    completion_rate: tickets.length
-      ? Math.round((completedTickets.length / tickets.length) * 100)
-      : 0,
-    total_quotes_submitted: quotes.length,
-    quotes_won: quotes.filter((q) => q.status === 'approved').length,
-    win_rate: quotes.length
-      ? Math.round((quotes.filter((q) => q.status === 'approved').length / quotes.length) * 100)
-      : 0,
-    total_revenue: totalRevenue,
+    completed_jobs: completed.length,
+    completion_rate: tickets.length ? Math.round((completed.length / tickets.length) * 100) : 0,
+    total_quotes: quotes.length,
+    quotes_won: approvedQuotes.length,
+    win_rate: quotes.length ? Math.round((approvedQuotes.length / quotes.length) * 100) : 0,
+    total_revenue: approvedQuotes.reduce((s, q) => s + Number(q.total_amount), 0),
   });
 });
 

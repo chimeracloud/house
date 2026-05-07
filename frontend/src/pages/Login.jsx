@@ -2,24 +2,29 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { BuildingOfficeIcon } from '@heroicons/react/24/outline';
-import api from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 
 export default function Login() {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
-  const { setAuth } = useAuthStore();
+  const { login } = useAuthStore();
   const navigate = useNavigate();
 
-  const onSubmit = async (values) => {
+  const onSubmit = async ({ email, password }) => {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', values);
-      setAuth(data.user, data.access_token, data.refresh_token);
+      await login(email, password);
       navigate('/');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Login failed. Check your credentials.');
+      const code = err.code;
+      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        toast.error('Invalid email or password.');
+      } else if (code === 'auth/too-many-requests') {
+        toast.error('Too many attempts. Please try again later.');
+      } else {
+        toast.error('Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -27,7 +32,6 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      {/* Background pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-brand-900/20 to-transparent" />
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-brand-900/20 blur-3xl" />
@@ -35,7 +39,6 @@ export default function Login() {
       </div>
 
       <div className="relative w-full max-w-sm">
-        {/* Logo */}
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
             <BuildingOfficeIcon className="w-6 h-6 text-white" />

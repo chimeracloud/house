@@ -1,59 +1,77 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import {
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from 'firebase/auth';
+import { firebaseAuth } from '../lib/firebase';
 
-export const useAuthStore = create(
-  persist(
-    (set, get) => ({
-      user: null,
-      token: null,
-      refreshToken: null,
+export const useAuthStore = create((set, get) => ({
+  user: null,
+  profile: null,
+  firebaseUser: null,
+  loading: true,
 
-      setAuth: (user, token, refreshToken) =>
-        set({ user, token, refreshToken }),
+  initAuth: () => {
+    return onAuthStateChanged(firebaseAuth, async (fbUser) => {
+      if (fbUser) {
+        set({ firebaseUser: fbUser, loading: false });
+      } else {
+        set({ user: null, profile: null, firebaseUser: null, loading: false });
+      }
+    });
+  },
 
-      setTokens: (token, refreshToken) =>
-        set({ token, refreshToken }),
+  login: async (email, password) => {
+    const cred = await signInWithEmailAndPassword(firebaseAuth, email, password);
+    set({ firebaseUser: cred.user });
+    return cred.user;
+  },
 
-      updateProfile: (profile) =>
-        set((state) => ({ user: { ...state.user, profile } })),
+  logout: async () => {
+    await signOut(firebaseAuth);
+    set({ user: null, profile: null, firebaseUser: null });
+    window.location.href = '/login';
+  },
 
-      logout: () => {
-        set({ user: null, token: null, refreshToken: null });
-        window.location.href = '/login';
-      },
+  setProfile: (profile) => set({ profile }),
 
-      get role() {
-        return get().user?.profile?.role;
-      },
+  getIdToken: async () => {
+    const fbUser = get().firebaseUser;
+    if (!fbUser) return null;
+    return fbUser.getIdToken();
+  },
 
-      get isOwner() {
-        return get().user?.profile?.role === 'property_owner';
-      },
+  get uid() {
+    return get().firebaseUser?.uid;
+  },
 
-      get isManager() {
-        return get().user?.profile?.role === 'property_manager';
-      },
+  get role() {
+    return get().profile?.role;
+  },
 
-      get isContractor() {
-        return get().user?.profile?.role === 'contractor';
-      },
+  get isOwner() {
+    return get().profile?.role === 'property_owner';
+  },
 
-      get isAdmin() {
-        return get().user?.profile?.role === 'admin';
-      },
+  get isManager() {
+    return get().profile?.role === 'property_manager';
+  },
 
-      get isStaff() {
-        const r = get().user?.profile?.role;
-        return ['property_manager', 'property_owner', 'admin'].includes(r);
-      },
-    }),
-    {
-      name: 'house-auth',
-      partialize: (state) => ({
-        user: state.user,
-        token: state.token,
-        refreshToken: state.refreshToken,
-      }),
-    }
-  )
-);
+  get isContractor() {
+    return get().profile?.role === 'contractor';
+  },
+
+  get isAdmin() {
+    return get().profile?.role === 'admin';
+  },
+
+  get isStaff() {
+    const r = get().profile?.role;
+    return ['property_manager', 'property_owner', 'admin'].includes(r);
+  },
+
+  get isAuthenticated() {
+    return !!get().firebaseUser;
+  },
+}));

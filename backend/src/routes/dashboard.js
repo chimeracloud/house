@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabase } from '../lib/supabase.js';
+import { db, FieldValue } from '../lib/firebase.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
@@ -8,15 +8,15 @@ router.get('/stats', authenticate, async (req, res) => {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [ticketsRes, paymentsRes, contractorsRes, pendingApprovalsRes] = await Promise.all([
-    supabase.from('maintenance_tickets').select('id, status, priority, created_at, deadline'),
-    supabase.from('payments').select('id, amount, status, created_at').gte('created_at', thirtyDaysAgo.toISOString()),
-    supabase.from('profiles').select('id').eq('role', 'contractor'),
-    supabase.from('quotations').select('id').in('status', ['submitted', 'pending_owner_approval']),
+  const [ticketsSnap, paymentsSnap, contractorsSnap, pendingQuotesSnap] = await Promise.all([
+    db.collection('tickets').get(),
+    db.collection('payments').where('created_at', '>=', thirtyDaysAgo).get(),
+    db.collection('profiles').where('role', '==', 'contractor').get(),
+    db.collection('quotations').where('status', 'in', ['submitted', 'pending_owner_approval']).get(),
   ]);
 
-  const tickets = ticketsRes.data || [];
-  const payments = paymentsRes.data || [];
+  const tickets = ticketsSnap.docs.map((d) => d.data());
+  const payments = paymentsSnap.docs.map((d) => d.data());
 
   const statusCounts = tickets.reduce((acc, t) => {
     acc[t.status] = (acc[t.status] || 0) + 1;
@@ -55,109 +55,122 @@ router.get('/stats', authenticate, async (req, res) => {
       total_invoiced_30d: payments.reduce((s, p) => s + Number(p.amount), 0),
     },
     contractors: {
-      total: contractorsRes.data?.length || 0,
+      total: contractorsSnap.size,
     },
     approvals: {
-      pending: pendingApprovalsRes.data?.length || 0,
+      pending: pendingQuotesSnap.size,
     },
   });
 });
 
-// Recent activity feed
 router.get('/activity', authenticate, async (req, res) => {
   const { limit = 20 } = req.query;
 
-  const { data, error } = await supabase
-    .from('audit_logs')
-    .select(`
-      *,
-      user:profiles!audit_logs_user_id_fkey(full_name, role)
-    `)
-    .order('created_at', { ascending: false })
-    .limit(Number(limit));
+  const snap = await db.collection('audit_logs')
+    .orderBy('created_at', 'desc')
+    .limit(Number(limit))
+    .get();
 
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ activity: data });
+  const activity = await Promise.all(snap.docs.map(async (d) => {
+    const log = { id: d.id, ...d.data() };
+    const profileSnap = await db.collection('profiles').doc(log.user_id).get();
+    if (profileSnap.exists) {
+      const p = profileSnap.data();
+      log.user = { full_name: p.full_name, role: p.role };
+    }
+    return log;
+  }));
+
+  res.json({ activity });
 });
 
-// Monthly cost breakdown
 router.get('/costs', authenticate, async (req, res) => {
   const { months = 6 } = req.query;
   const since = new Date();
   since.setMonth(since.getMonth() - Number(months));
 
-  const { data, error } = await supabase
-    .from('payments')
-    .select('amount, created_at, status')
-    .gte('created_at', since.toISOString())
-    .eq('status', 'paid');
-
-  if (error) return res.status(400).json({ error: error.message });
+  const snap = await db.collection('payments')
+    .where('status', '==', 'paid')
+    .where('created_at', '>=', since)
+    .get();
 
   const monthly = {};
-  for (const p of data || []) {
-    const month = p.created_at.substring(0, 7); // YYYY-MM
-    monthly[month] = (monthly[month] || 0) + Number(p.amount);
+  for (const d of snap.docs) {
+    const data = d.data();
+    const ts = data.created_at?.toDate ? data.created_at.toDate() : new Date(data.created_at);
+    const month = ts.toISOString().substring(0, 7);
+    monthly[month] = (monthly[month] || 0) + Number(data.amount);
   }
 
-  const result = Object.entries(monthly)
+  const costs = Object.entries(monthly)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, total]) => ({ month, total }));
 
-  res.json({ costs: result });
+  res.json({ costs });
 });
 
-// Notifications
 router.get('/notifications', authenticate, async (req, res) => {
   const { unread_only = false, limit = 30 } = req.query;
 
-  let q = supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('created_at', { ascending: false })
+  let q = db.collection('notifications')
+    .where('user_id', '==', req.user.uid)
+    .orderBy('created_at', 'desc')
     .limit(Number(limit));
 
-  if (unread_only === 'true') q = q.eq('read', false);
+  if (unread_only === 'true') q = q.where('read', '==', false);
 
-  const { data, error } = await q;
-  if (error) return res.status(400).json({ error: error.message });
+  const snap = await q.get();
+  const notifications = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const unread_count = notifications.filter((n) => !n.read).length;
 
-  const unreadCount = (data || []).filter((n) => !n.read).length;
-  res.json({ notifications: data, unread_count: unreadCount });
+  res.json({ notifications, unread_count });
 });
 
-// Mark notification read
 router.patch('/notifications/:id/read', authenticate, async (req, res) => {
-  await supabase
-    .from('notifications')
-    .update({ read: true, read_at: new Date() })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-
+  await db.collection('notifications').doc(req.params.id).update({
+    read: true,
+    read_at: FieldValue.serverTimestamp(),
+  });
   res.json({ message: 'Marked as read' });
 });
 
-// Mark all read
 router.post('/notifications/read-all', authenticate, async (req, res) => {
-  await supabase
-    .from('notifications')
-    .update({ read: true, read_at: new Date() })
-    .eq('user_id', req.user.id)
-    .eq('read', false);
+  const snap = await db.collection('notifications')
+    .where('user_id', '==', req.user.uid)
+    .where('read', '==', false)
+    .get();
+
+  const batch = db.batch();
+  snap.docs.forEach((d) => {
+    batch.update(d.ref, { read: true, read_at: FieldValue.serverTimestamp() });
+  });
+  await batch.commit();
 
   res.json({ message: 'All notifications marked as read' });
 });
 
-// Rooms list
 router.get('/rooms', authenticate, async (req, res) => {
-  const { data, error } = await supabase
-    .from('rooms')
-    .select(`*, tickets:maintenance_tickets(id, status)`)
-    .order('number');
+  const [roomsSnap, ticketsSnap] = await Promise.all([
+    db.collection('rooms').orderBy('number').get(),
+    db.collection('tickets').get(),
+  ]);
 
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ rooms: data });
+  const ticketsByRoom = {};
+  ticketsSnap.docs.forEach((d) => {
+    const t = d.data();
+    if (t.room_id) {
+      if (!ticketsByRoom[t.room_id]) ticketsByRoom[t.room_id] = [];
+      ticketsByRoom[t.room_id].push({ id: d.id, status: t.status });
+    }
+  });
+
+  const rooms = roomsSnap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+    tickets: ticketsByRoom[d.id] || [],
+  }));
+
+  res.json({ rooms });
 });
 
 export default router;
