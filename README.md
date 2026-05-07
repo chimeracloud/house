@@ -1,4 +1,4 @@
-# HouseManager — Property Repairs & Maintenance Platform
+# Rosy Morn | Property Management Console
 
 A full-stack web application for managing repairs, maintenance, contractor workflows, approvals, quotations, and payments for a shared residential property.
 
@@ -292,4 +292,4 @@ Full schema: [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/
 
 ## License
 
-Private repository — © 2025 ChimeraCloud. All rights reserved.
+Private repository — © 2025 Ascot Wealth Management. All rights reserved.

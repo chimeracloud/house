@@ -41,8 +41,8 @@ export default function Login() {
             <BuildingOfficeIcon className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">HouseManager</h1>
-            <p className="text-xs text-slate-400">Property Maintenance Platform</p>
+            <h1 className="text-xl font-bold text-white">Rosy Morn</h1>
+            <p className="text-xs text-slate-400">Property Management Console</p>
           </div>
         </div>
 
@@ -90,7 +90,7 @@ export default function Login() {
         </div>
 
         <p className="text-xs text-slate-600 text-center mt-6">
-          © {new Date().getFullYear()} HouseManager · All rights reserved
+          © {new Date().getFullYear()} Ascot Wealth Management · All rights reserved
         </p>
       </div>
     </div>

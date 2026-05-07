@@ -49,7 +49,7 @@ export default function AppLayout() {
           >
             <Bars3Icon className="w-5 h-5" />
           </button>
-          <span className="font-semibold text-sm text-slate-900 dark:text-white">HouseManager</span>
+          <span className="font-semibold text-sm text-slate-900 dark:text-white">Rosy Morn</span>
           <div className="w-9" />
         </div>
 

@@ -35,8 +35,8 @@ export default function Sidebar({ mobile = false, onClose }) {
           <BuildingOfficeIcon className="w-5 h-5 text-white" />
         </div>
         <div>
-          <p className="font-semibold text-sm leading-tight">HouseManager</p>
-          <p className="text-xs text-slate-400">Property Management</p>
+          <p className="font-semibold text-sm leading-tight">Rosy Morn</p>
+          <p className="text-xs text-slate-400">Property Management Console</p>
         </div>
       </div>
 
