@@ -5,11 +5,10 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { ArrowDownTrayIcon, ChartBarIcon } from '@heroicons/react/24/outline';
-import { useQuery } from '@tanstack/react-query';
-import api from '../lib/api';
 import Spinner from '../components/ui/Spinner';
 import StatCard from '../components/ui/StatCard';
 import { useDashboardStats, useCosts } from '../hooks/useDashboard';
+import { useContractors } from '../hooks/useContractors';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -20,13 +19,7 @@ export default function Reports() {
   const { data: stats } = useDashboardStats();
   const { data: costs } = useCosts(months);
 
-  const { data: contractorData } = useQuery({
-    queryKey: ['contractors-report'],
-    queryFn: async () => {
-      const { data } = await api.get('/contractors');
-      return data.contractors;
-    },
-  });
+  const { data: contractorData } = useContractors();
 
   const statusData = Object.entries(stats?.tickets?.by_status || {}).map(([name, value]) => ({ name, value }));
   const priorityData = Object.entries(stats?.tickets?.by_priority || {}).map(([name, value]) => ({

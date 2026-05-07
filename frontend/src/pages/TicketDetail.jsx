@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { format } from 'date-fns';
+import { useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   ArrowLeftIcon, PaperClipIcon, ChatBubbleLeftIcon,
-  CheckCircleIcon, XCircleIcon, PlusIcon, PencilIcon,
+  CheckCircleIcon, XCircleIcon, PlusIcon, ArrowUpTrayIcon,
   MapPinIcon, CalendarIcon, UserIcon,
 } from '@heroicons/react/24/outline';
 import Badge from '../components/ui/Badge';
@@ -13,6 +15,7 @@ import SubmitQuoteModal from '../components/quotes/SubmitQuoteModal';
 import { useTicket, useAddComment, useUpdateTicket, useSignOff } from '../hooks/useTickets';
 import { useApproveQuote, useRejectQuote } from '../hooks/useQuotes';
 import { useAuthStore } from '../stores/authStore';
+import { uploadTicketAttachment } from '../lib/upload';
 
 const STATUS_TRANSITIONS = {
   pending:              ['awaiting_quote', 'rejected'],
@@ -40,6 +43,31 @@ export default function TicketDetail() {
   const { mutateAsync: approveQuote } = useApproveQuote();
   const { mutateAsync: rejectQuote } = useRejectQuote();
   const { mutateAsync: signOff, isPending: signingOff } = useSignOff();
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        await uploadTicketAttachment(id, file);
+      }
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      toast.success(`${files.length} file${files.length > 1 ? 's' : ''} uploaded`);
+    } catch (err) {
+      const code = err?.code || '';
+      if (code === 'storage/unauthorized' || code === 'storage/object-not-found' || /storage/i.test(err.message || '')) {
+        toast.error('Storage upload failed. Make sure Firebase Storage is enabled (requires Blaze plan).');
+      } else {
+        toast.error(err.message || 'Upload failed');
+      }
+    } finally {
+      setUploading(false);
+      event.target.value = '';
+    }
+  };
 
   if (isLoading) return <div className="flex justify-center py-24"><Spinner size="lg" /></div>;
   if (!ticket) return <div className="text-center py-24 text-slate-500">Ticket not found</div>;
@@ -141,11 +169,25 @@ export default function TicketDetail() {
         {/* Left: Attachments + Quotes + Comments */}
         <div className="lg:col-span-2 space-y-5">
           {/* Attachments */}
-          {ticket.attachments?.length > 0 && (
-            <div className="card p-5">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-                <PaperClipIcon className="w-4 h-4" /> Attachments ({ticket.attachments.length})
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <PaperClipIcon className="w-4 h-4" /> Attachments ({ticket.attachments?.length || 0})
               </h2>
+              <label className="btn-secondary text-xs cursor-pointer">
+                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                {uploading ? 'Uploading…' : 'Upload'}
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,video/*,application/pdf"
+                  className="hidden"
+                  onChange={handleUpload}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+            {ticket.attachments?.length ? (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {ticket.attachments.filter((a) => a.file_type === 'image').map((att) => (
                   <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
@@ -162,8 +204,10 @@ export default function TicketDetail() {
                   </a>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-4">No attachments yet</p>
+            )}
+          </div>
 
           {/* Quotes */}
           {ticket.quotations?.length > 0 && (

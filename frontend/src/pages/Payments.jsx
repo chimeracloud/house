@@ -2,46 +2,19 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { CurrencyPoundIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
 import Badge from '../components/ui/Badge';
 import Spinner from '../components/ui/Spinner';
 import EmptyState from '../components/ui/EmptyState';
 import { useAuthStore } from '../stores/authStore';
-import toast from 'react-hot-toast';
+import { usePayments, useAuthorizePayment, useMarkPaid } from '../hooks/usePayments';
 
 export default function Payments() {
   const [statusFilter, setStatusFilter] = useState('');
   const { isOwner, isAdmin } = useAuthStore();
-  const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['payments', statusFilter],
-    queryFn: async () => {
-      const params = {};
-      if (statusFilter) params.status = statusFilter;
-      const { data } = await api.get('/payments', { params });
-      return data.payments;
-    },
-  });
-
-  const { mutate: authorize, isPending: authorizing } = useMutation({
-    mutationFn: async (id) => api.post(`/payments/${id}/authorize`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      toast.success('Payment authorized');
-    },
-    onError: (e) => toast.error(e.response?.data?.error || 'Authorization failed'),
-  });
-
-  const { mutate: markPaid, isPending: marking } = useMutation({
-    mutationFn: async ({ id, ref }) => api.post(`/payments/${id}/paid`, { transaction_ref: ref }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      toast.success('Payment marked as sent');
-    },
-    onError: (e) => toast.error(e.response?.data?.error || 'Failed to mark as paid'),
-  });
+  const { data, isLoading } = usePayments(statusFilter ? { status: statusFilter } : {});
+  const { mutate: authorize, isPending: authorizing } = useAuthorizePayment();
+  const { mutate: markPaid, isPending: marking } = useMarkPaid();
 
   const totalPending = (data || [])
     .filter((p) => p.status === 'authorized')

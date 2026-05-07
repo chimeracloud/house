@@ -1,6 +1,6 @@
 # Rosy Morn | Property Management Console
 
-A full-stack web application for managing repairs, maintenance, contractor workflows, approvals, quotations, and payments for a shared residential property.
+A full-stack web application for managing repairs, maintenance, contractor workflows, approvals, quotations, and payments for a shared residential property — built on **Firebase** so it runs on the free tier with one-command deploys.
 
 ---
 
@@ -8,25 +8,23 @@ A full-stack web application for managing repairs, maintenance, contractor workf
 
 ```
 house/
-├── frontend/          # React + Vite + TailwindCSS → Cloudflare Pages
-├── backend/           # Node.js + Express + Supabase → Google Cloud Run
-├── supabase/
-│   └── migrations/    # PostgreSQL schema (run in Supabase SQL editor)
-├── .github/workflows/ # GitHub Actions CI/CD
-└── docker-compose.yml # Local development
+├── frontend/              # React 18 + Vite + TailwindCSS  →  Cloudflare Pages or Firebase Hosting
+├── firestore.rules        # Role-based access control (the security boundary)
+├── firestore.indexes.json # Composite indexes
+├── storage.rules          # File upload rules (requires Blaze plan)
+├── firebase.json          # Hosting + rules config
+└── .firebaserc            # Project alias → rosy-morn-prop-2026
 ```
 
-## Tech Stack
+There is **no separate backend**. The frontend talks directly to Firestore using the Firebase Web SDK. Security is enforced by Firestore Security Rules, not by an Express layer. This is the canonical Firebase pattern.
 
 | Layer       | Technology                          |
 |-------------|-------------------------------------|
 | Frontend    | React 18, Vite, TailwindCSS, Zustand, React Query, Recharts |
-| Backend     | Node.js 20, Express, express-validator |
-| Database    | Supabase (PostgreSQL + RLS)         |
-| Auth        | Supabase Auth (JWT)                 |
-| Storage     | Supabase Storage                    |
-| Deploy FE   | Cloudflare Pages                    |
-| Deploy BE   | Google Cloud Run                    |
+| Auth        | Firebase Auth (email/password)      |
+| Database    | Cloud Firestore (free Spark tier)   |
+| Storage     | Firebase Storage *(needs Blaze plan)* |
+| Hosting     | Cloudflare Pages **or** Firebase Hosting |
 | CI/CD       | GitHub Actions                      |
 
 ---
@@ -41,255 +39,173 @@ house/
 | `contractor`       | View assigned jobs, submit quotes, upload progress, track payment    |
 | `resident`         | Log issues, view their own tickets                                   |
 
+Roles are stored in `profiles/{uid}.role` and read by Firestore rules at request time.
+
 ---
 
-## Quick Start (Local)
+## Quick Start
 
 ### Prerequisites
 - Node.js 20+
-- A [Supabase](https://supabase.com) project (free tier works)
+- Firebase project (already exists: `rosy-morn-prop-2026`)
+- `firebase` CLI (`npm install -g firebase-tools`) — only needed for deploys
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/chimeracloud/house.git
-cd house
-```
-
-### 2. Set up Supabase
-
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** and run `supabase/migrations/001_initial_schema.sql`
-3. In **Storage**, create a bucket called `attachments` (set to public)
-4. Note your project URL, anon key, and service role key
-
-### 3. Configure the backend
-
-```bash
-cd backend
-cp .env.example .env
-# Edit .env with your Supabase credentials
-npm install
-npm run dev
-```
-
-### 4. Configure the frontend
+### 1. Configure the frontend
 
 ```bash
 cd frontend
 cp .env.example .env
-# Edit .env: VITE_API_URL=http://localhost:8080/api
+```
+
+Get the Firebase web config from [Firebase Console → Project Settings → Your apps → Rosy Morn](https://console.firebase.google.com/project/rosy-morn-prop-2026/settings/general) and paste into `.env`:
+
+```env
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=rosy-morn-prop-2026.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=rosy-morn-prop-2026
+VITE_FIREBASE_STORAGE_BUCKET=rosy-morn-prop-2026.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+```bash
 npm install
 npm run dev
 ```
 
-Frontend: http://localhost:5173 · Backend: http://localhost:8080
+Frontend: <http://localhost:5173>
 
-### 5. Create your first admin user
+### 2. Create the first admin user
 
-In the Supabase SQL editor, after running the migration:
+1. [Firebase Console → Authentication → Users → Add user](https://console.firebase.google.com/project/rosy-morn-prop-2026/authentication/users) — create an account with email + password.
+2. Sign in to the app at <http://localhost:5173/login>. A `profiles/{uid}` doc is created automatically with `role: "resident"`.
+3. In **Firebase Console → Firestore → profiles**, find your document and change `role` to `admin`.
+4. Refresh the app — full admin access.
 
-```sql
--- Run backend first, then use the API:
-POST /api/auth/admin/users
-{
-  "email": "owner@yourdomain.com",
-  "full_name": "Property Owner",
-  "role": "property_owner",
-  "password": "SecurePassword123!"
-}
-```
-
-Or use Supabase Dashboard → Authentication → Users to create users, then set their role in the `profiles` table.
-
----
-
-## Docker (Local)
-
-```bash
-# Copy env files first
-cp backend/.env.example backend/.env
-# Edit backend/.env with real credentials
-
-docker-compose up --build
-```
+After that, all subsequent users can be promoted from inside the app via **Settings → User Management**.
 
 ---
 
 ## Deployment
 
-### Backend → Google Cloud Run
+### Frontend → Cloudflare Pages (recommended — free)
 
-#### Required GitHub Secrets
+1. Connect the GitHub repo at <https://dash.cloudflare.com> → Pages → Create project.
+2. Build settings:
+   - Build command: `cd frontend && npm install && npm run build`
+   - Build output directory: `frontend/dist`
+3. Set the same `VITE_FIREBASE_*` env vars from your `.env` as Cloudflare Pages environment variables.
+4. Add your Pages URL to Firebase Authentication → Settings → Authorized domains.
 
-| Secret                           | Description                               |
-|----------------------------------|-------------------------------------------|
-| `GCP_PROJECT_ID`                 | Your Google Cloud project ID              |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Workload identity provider resource name  |
-| `GCP_SERVICE_ACCOUNT`            | Service account email for deployments     |
-
-#### Required Google Cloud Secrets (Secret Manager)
-
-Create these in GCP Secret Manager:
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ALLOWED_ORIGINS` (e.g. `https://house-management.pages.dev`)
-
-#### Setup
+### Frontend → Firebase Hosting (alternative)
 
 ```bash
-# Enable required APIs
-gcloud services enable run.googleapis.com containerregistry.googleapis.com secretmanager.googleapis.com
-
-# Create service account
-gcloud iam service-accounts create house-deploy \
-  --display-name="House Management Deploy"
-
-# Grant permissions
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:house-deploy@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/run.admin"
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:house-deploy@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/storage.admin"
+cd frontend && npm run build && cd ..
+firebase deploy --only hosting
 ```
 
-### Frontend → Cloudflare Pages
+### Firestore rules + indexes
 
-#### Required GitHub Secrets
+Deploy whenever `firestore.rules` or `firestore.indexes.json` change:
 
-| Secret                    | Description                        |
-|---------------------------|------------------------------------|
-| `CLOUDFLARE_API_TOKEN`    | Cloudflare API token with Pages permissions |
-| `CLOUDFLARE_ACCOUNT_ID`   | Your Cloudflare account ID         |
-| `VITE_API_URL`            | Your Cloud Run backend URL + `/api`|
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```
 
-#### Setup
+The `firebase-rules.yml` GitHub workflow does this automatically when those files change on `main`, provided you've added a `FIREBASE_TOKEN` repo secret (generate via `firebase login:ci`).
 
-1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → Pages → Create a project
-2. Name it `house-management`
-3. Create an API token with **Cloudflare Pages: Edit** permission
+### Storage (optional — file uploads)
+
+Image and document uploads require [Firebase Storage](https://console.firebase.google.com/project/rosy-morn-prop-2026/storage), which needs the **Blaze (pay-as-you-go) plan**. The app gracefully fails uploads with a clear message if Storage isn't enabled.
+
+To enable:
+
+1. [Firebase Console → Storage → Get started](https://console.firebase.google.com/project/rosy-morn-prop-2026/storage). Pick a region (us-central1 / europe-west2 / etc.).
+2. Upgrade to Blaze plan if prompted.
+3. Deploy storage rules: `firebase deploy --only storage`.
 
 ---
 
-## API Reference
+## Required GitHub Secrets
 
-### Authentication
-| Method | Path                   | Auth | Description               |
-|--------|------------------------|------|---------------------------|
-| POST   | `/api/auth/login`      | —    | Login, returns JWT tokens |
-| POST   | `/api/auth/refresh`    | —    | Refresh access token      |
-| GET    | `/api/auth/me`         | ✓    | Get current user profile  |
-| PATCH  | `/api/auth/me`         | ✓    | Update profile            |
-| POST   | `/api/auth/admin/users`| ✓    | Create user (admin/owner) |
-| GET    | `/api/auth/admin/users`| ✓    | List all users            |
+For the build workflow (any push to `main`):
 
-### Tickets
-| Method | Path                         | Description                    |
-|--------|------------------------------|--------------------------------|
-| GET    | `/api/tickets`               | List tickets (filterable)      |
-| POST   | `/api/tickets`               | Create ticket                  |
-| GET    | `/api/tickets/:id`           | Get ticket with full details   |
-| PATCH  | `/api/tickets/:id`           | Update ticket                  |
-| POST   | `/api/tickets/:id/comments`  | Add comment                    |
-| POST   | `/api/tickets/:id/attachments`| Get signed upload URL         |
-| POST   | `/api/tickets/:id/signoff`   | Inspection sign-off            |
+| Secret                              | Required for       |
+|-------------------------------------|--------------------|
+| `VITE_FIREBASE_API_KEY`             | Frontend build     |
+| `VITE_FIREBASE_AUTH_DOMAIN`         | Frontend build     |
+| `VITE_FIREBASE_PROJECT_ID`          | Frontend build     |
+| `VITE_FIREBASE_STORAGE_BUCKET`      | Frontend build     |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Frontend build     |
+| `VITE_FIREBASE_APP_ID`              | Frontend build     |
+| `FIREBASE_TOKEN` *(optional)*       | Auto-deploy rules  |
 
-### Quotations
-| Method | Path                    | Description                         |
-|--------|-------------------------|-------------------------------------|
-| GET    | `/api/quotes`           | List quotations                     |
-| POST   | `/api/quotes`           | Submit quote (contractor)           |
-| GET    | `/api/quotes/:id`       | Get quotation detail                |
-| POST   | `/api/quotes/:id/approve`| Approve quote                      |
-| POST   | `/api/quotes/:id/reject` | Reject quote                       |
-
-### Contractors
-| Method | Path                         | Description                  |
-|--------|------------------------------|------------------------------|
-| GET    | `/api/contractors`           | List all contractors         |
-| GET    | `/api/contractors/:id`       | Contractor profile           |
-| POST   | `/api/contractors/:id/rate`  | Submit rating                |
-| GET    | `/api/contractors/:id/analytics`| Performance stats          |
-
-### Payments
-| Method | Path                          | Description                |
-|--------|-------------------------------|----------------------------|
-| GET    | `/api/payments`               | List payments              |
-| POST   | `/api/payments`               | Create payment record      |
-| POST   | `/api/payments/:id/authorize` | Owner authorizes payment   |
-| POST   | `/api/payments/:id/paid`      | Mark as paid               |
-
-### Dashboard
-| Method | Path                                    | Description              |
-|--------|-----------------------------------------|--------------------------|
-| GET    | `/api/dashboard/stats`                  | Summary statistics       |
-| GET    | `/api/dashboard/activity`               | Recent audit log         |
-| GET    | `/api/dashboard/costs`                  | Monthly cost breakdown   |
-| GET    | `/api/dashboard/notifications`          | User notifications       |
-| PATCH  | `/api/dashboard/notifications/:id/read` | Mark notification read   |
-| POST   | `/api/dashboard/notifications/read-all` | Mark all read            |
-| GET    | `/api/dashboard/rooms`                  | Property rooms list      |
+Cloudflare Pages does its build using its own env-var settings — duplicate the `VITE_FIREBASE_*` values there, not in GitHub Secrets.
 
 ---
 
-## Ticket Workflow
+## Data Model (Firestore)
 
 ```
-[Pending] → [Awaiting Quote] → [Approved] → [In Progress]
+profiles/{uid}            { full_name, role, phone, company_name, is_active, ... }
+rooms/{id}                { number, name, floor, type }
+tickets/{id}              { title, description, status, priority, room_id,
+                            created_by, assigned_contractor, deadline, ... }
+  comments/{id}           { content, author_id, author_name, ... }
+  attachments/{id}        { file_name, file_url, file_type, ... }
+  approvals/{id}          { approver_id, type, decision, notes, ... }
+quotations/{id}           { ticket_id, contractor_id, total_amount, status, ... }
+  items/{id}              { description, item_type, quantity, unit_price, total }
+payments/{id}             { ticket_id, contractor_id, amount, status, ... }
+contractor_ratings/{id}   { contractor_id, ticket_id, rating, category, ... }
+notifications/{id}        { user_id, title, message, type, read, ... }
+audit_logs/{id}           { user_id, action, entity_type, entity_id, metadata }
+```
+
+All access is gated by `firestore.rules`.
+
+## Workflows
+
+### Ticket lifecycle
+
+```
+[pending] → [awaiting_quote] → [approved] → [in_progress]
                                                     ↓
-                                        [Awaiting Inspection]
+                                        [awaiting_inspection]
                                           ↙            ↘
-                                    [Completed]    [In Progress] ← re-work
+                                    [completed]    [in_progress] ← re-work
                                           ↓
-                                        [Paid]
+                                        [paid]
 ```
 
-## Payment Workflow
+### Quote approval
+
+- Manager approves quote ≤ £500 → ticket moves to **approved**, contractor assigned, sibling quotes auto-rejected.
+- Manager approves quote > £500 → escalates to owner (`pending_owner_approval`).
+- Owner approves → ticket moves to **approved**, sibling quotes rejected.
+
+### Payment lifecycle
 
 ```
-Ticket Completed → Payment Created (pending)
-                        ↓
-               Owner Authorizes (authorized)
-                        ↓
-               Manager Marks Sent (paid)
-                        ↓
-               Ticket Status → Paid
-```
-
----
-
-## Environment Variables
-
-### Backend (`backend/.env`)
-
-```env
-NODE_ENV=development
-PORT=8080
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-ALLOWED_ORIGINS=http://localhost:5173,https://your-app.pages.dev
-```
-
-### Frontend (`frontend/.env`)
-
-```env
-VITE_API_URL=http://localhost:8080/api
+Ticket completed
+   ↓
+Manager records payment (status: pending)
+   ↓
+Owner authorizes (status: authorized, ticket → paid)
+   ↓
+Manager marks sent (status: paid)
 ```
 
 ---
 
-## Database Schema
+## Local development tips
 
-Key tables: `profiles`, `properties`, `rooms`, `maintenance_tickets`, `ticket_attachments`, `ticket_comments`, `quotations`, `quote_items`, `approvals`, `payments`, `contractor_ratings`, `notifications`, `audit_logs`
-
-Full schema: [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql)
+- **Email-only auth:** Auth is configured for email/password only. Enable other providers in [Firebase Console → Authentication → Sign-in method](https://console.firebase.google.com/project/rosy-morn-prop-2026/authentication/providers) if needed.
+- **Composite indexes:** Firestore needs composite indexes for some queries (e.g. `where('status') + orderBy('created_at')`). They're declared in `firestore.indexes.json` and deploy automatically.
+- **First sign-in:** When a new user signs in, a default `profiles/{uid}` doc is *not* created automatically — staff create it via the app's User Management page after the user has signed in once. (Or: an admin creates the doc directly in Firestore Console with the right role.)
 
 ---
 
 ## License
 
-Private repository — © 2026 Ascot Wealth Management. All rights reserved.
+Private — © 2026 Ascot Wealth Management. All rights reserved.

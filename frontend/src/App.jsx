@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
-import api from './lib/api';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -14,34 +13,37 @@ import Reports from './pages/Reports';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
 
+function FullScreenSpinner() {
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function RequireAuth({ children }) {
-  const { isAuthenticated, loading } = useAuthStore();
-  if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const loading = useAuthStore((s) => s.loading);
+  if (loading) return <FullScreenSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
 }
 
 function RequireGuest({ children }) {
-  const { isAuthenticated, loading } = useAuthStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const loading = useAuthStore((s) => s.loading);
   if (loading) return null;
   if (isAuthenticated) return <Navigate to="/" replace />;
   return children;
 }
 
 export default function App() {
-  const { initAuth, firebaseUser, setProfile } = useAuthStore();
+  const initAuth = useAuthStore((s) => s.initAuth);
 
   useEffect(() => {
     const unsubscribe = initAuth();
     return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
-  }, []);
-
-  useEffect(() => {
-    if (!firebaseUser) return;
-    api.get('/auth/me').then(({ data }) => {
-      setProfile(data.user?.profile || null);
-    }).catch(() => {});
-  }, [firebaseUser]);
+  }, [initAuth]);
 
   return (
     <BrowserRouter>

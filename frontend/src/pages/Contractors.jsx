@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { StarIcon, UserGroupIcon, PhoneIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolidIcon } from '@heroicons/react/24/solid';
-import { useQuery } from '@tanstack/react-query';
-import api from '../lib/api';
+import { useContractors } from '../hooks/useContractors';
 import Spinner from '../components/ui/Spinner';
 import EmptyState from '../components/ui/EmptyState';
 
@@ -23,13 +22,7 @@ function StarRating({ rating, max = 5 }) {
 export default function Contractors() {
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['contractors'],
-    queryFn: async () => {
-      const { data } = await api.get('/contractors');
-      return data.contractors;
-    },
-  });
+  const { data, isLoading } = useContractors();
 
   const contractors = (data || []).filter((c) => {
     if (!search) return true;

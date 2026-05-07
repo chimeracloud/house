@@ -1,0 +1,34 @@
+name: Deploy Firestore Rules & Indexes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
+      - '.github/workflows/firebase-rules.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g firebase-tools
+      - name: Deploy Firestore rules + indexes + storage rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "FIREBASE_TOKEN secret not configured — skipping deploy."
+            echo "Run 'firebase login:ci' locally to obtain a token, then add it to repo secrets."
+            exit 0
+          fi
+          firebase deploy --only firestore:rules,firestore:indexes,storage \
+            --project rosy-morn-prop-2026 \
+            --token "$FIREBASE_TOKEN" \
+            --non-interactive

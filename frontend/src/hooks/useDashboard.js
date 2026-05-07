@@ -1,71 +1,58 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
-import toast from 'react-hot-toast';
+import { dashboard } from '../lib/data';
+import { useAuthStore } from '../stores/authStore';
 
 export function useDashboardStats() {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
     queryKey: ['dashboard-stats'],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/stats');
-      return data;
-    },
+    queryFn: () => dashboard.stats(),
     refetchInterval: 1000 * 60 * 5,
+    enabled: !!uid,
   });
 }
 
-export function useActivity(limit = 20) {
+export function useActivity(lim = 20) {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
-    queryKey: ['activity', limit],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/activity', { params: { limit } });
-      return data.activity;
-    },
+    queryKey: ['activity', lim],
+    queryFn: () => dashboard.activity(lim),
+    enabled: !!uid,
   });
 }
 
 export function useCosts(months = 6) {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
     queryKey: ['costs', months],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/costs', { params: { months } });
-      return data.costs;
-    },
+    queryFn: () => dashboard.costs(months),
+    enabled: !!uid,
   });
 }
 
 export function useNotifications(unreadOnly = false) {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
-    queryKey: ['notifications', unreadOnly],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/notifications', {
-        params: { unread_only: unreadOnly },
-      });
-      return data;
-    },
+    queryKey: ['notifications', unreadOnly, uid],
+    queryFn: () => dashboard.notifications({ unreadOnly }),
     refetchInterval: 1000 * 30,
+    enabled: !!uid,
   });
 }
 
 export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id) => {
-      if (id === 'all') {
-        await api.post('/dashboard/notifications/read-all');
-      } else {
-        await api.patch(`/dashboard/notifications/${id}/read`);
-      }
-    },
+    mutationFn: (id) => dashboard.markRead(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
 }
 
 export function useRooms() {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
     queryKey: ['rooms'],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/rooms');
-      return data.rooms;
-    },
+    queryFn: () => dashboard.rooms(),
+    enabled: !!uid,
   });
 }

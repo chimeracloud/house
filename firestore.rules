@@ -3,107 +3,174 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuthenticated() {
+    // ---------- helpers ----------
+    function isAuthed() {
       return request.auth != null;
     }
 
-    function getProfile() {
-      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    function isSelf(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function getRole() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role;
     }
 
     function hasRole(role) {
-      return isAuthenticated() && getProfile().role == role;
+      return isAuthed() && getRole() == role;
     }
 
-    function hasAnyRole(roles) {
-      return isAuthenticated() && getProfile().role in roles;
+    function inRoles(roles) {
+      return isAuthed() && getRole() in roles;
     }
 
     function isStaff() {
-      return hasAnyRole(['admin', 'property_owner', 'property_manager']);
+      return inRoles(['admin', 'property_owner', 'property_manager']);
     }
 
-    // Profiles — users can read their own; staff can read all; only backend writes
+    // ---------- PROFILES ----------
+    // - Any authenticated user can READ profiles (for displaying names on
+    //   tickets, quotes, comments, etc.). Sensitive fields could be split
+    //   into a private subcollection if needed later.
+    // - First-time users can create their OWN profile (role defaults to 'resident',
+    //   staff promote it later via Settings)
+    // - Self-updates can't change role or is_active
+    // - Staff can update role / is_active on any profile
     match /profiles/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isStaff());
-      allow write: if false; // backend only
+      allow read: if isAuthed();
+
+      // First sign-in self-creation. role MUST be 'resident' (or absent).
+      allow create: if isAuthed()
+        && isSelf(userId)
+        && (!('role' in request.resource.data) || request.resource.data.role == 'resident');
+
+      // Self update of own profile — no role / is_active change
+      allow update: if isAuthed() && isSelf(userId)
+        && !('role' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('is_active' in request.resource.data.diff(resource.data).affectedKeys());
+
+      // Staff can promote / deactivate
+      allow update: if isStaff();
+
+      allow delete: if hasRole('admin');
     }
 
-    // Tickets — all authenticated users can read; any authenticated user can create
-    // Only staff can update
+    // ---------- ROOMS ----------
+    match /rooms/{roomId} {
+      allow read: if isAuthed();
+      allow write: if isStaff();
+    }
+
+    // ---------- TICKETS ----------
+    // Read: any authenticated user (so contractors can see jobs to bid on)
+    // Create: any authenticated user
+    // Update: staff or the assigned contractor (latter for status transitions like awaiting_inspection)
+    // Delete: admin only
     match /tickets/{ticketId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isStaff();
+      allow read: if isAuthed();
+      allow create: if isAuthed()
+        && request.resource.data.created_by == request.auth.uid;
+
+      allow update: if isStaff()
+        || (hasRole('contractor') && resource.data.assigned_contractor == request.auth.uid);
+
       allow delete: if hasRole('admin');
 
       match /comments/{commentId} {
-        allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && request.resource.data.author_id == request.auth.uid;
         allow update, delete: if false;
       }
 
       match /attachments/{attachmentId} {
-        allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
-        allow update, delete: if isStaff();
+        allow read: if isAuthed();
+        allow create: if isAuthed()
+          && request.resource.data.uploaded_by == request.auth.uid;
+        allow update: if false;
+        allow delete: if isStaff()
+          || (isAuthed() && resource.data.uploaded_by == request.auth.uid);
       }
 
       match /approvals/{approvalId} {
-        allow read: if isAuthenticated();
-        allow write: if false; // backend only
+        allow read: if isAuthed();
+        allow create: if isStaff()
+          && request.resource.data.approver_id == request.auth.uid;
+        allow update, delete: if false;
       }
     }
 
-    // Quotations — contractors see their own; staff see all
+    // ---------- QUOTATIONS ----------
+    // Read: contractor sees own; staff see all
+    // Create: any contractor (must set their uid as contractor_id)
+    // Update: staff (status changes); contractor can update their own draft fields
+    // Delete: admin
     match /quotations/{quoteId} {
-      allow read: if isAuthenticated() && (
-        hasRole('contractor') ? resource.data.contractor_id == request.auth.uid : isStaff()
+      allow read: if isAuthed() && (
+        isStaff()
+        || (hasRole('contractor') && resource.data.contractor_id == request.auth.uid)
       );
-      allow create: if hasRole('contractor');
-      allow update: if false; // backend only
+
+      allow create: if hasRole('contractor')
+        && request.resource.data.contractor_id == request.auth.uid;
+
+      allow update: if isStaff();
       allow delete: if hasRole('admin');
 
       match /items/{itemId} {
-        allow read: if isAuthenticated();
-        allow write: if false; // backend only
+        allow read: if isAuthed();
+        allow create: if hasRole('contractor');
+        allow update, delete: if isStaff();
       }
     }
 
-    // Payments — contractors see their own; staff see all
+    // ---------- PAYMENTS ----------
+    // Read: contractor sees own; staff see all
+    // Create / authorize / mark-paid: staff only
     match /payments/{paymentId} {
-      allow read: if isAuthenticated() && (
-        hasRole('contractor') ? resource.data.contractor_id == request.auth.uid : isStaff()
+      allow read: if isAuthed() && (
+        isStaff()
+        || (hasRole('contractor') && resource.data.contractor_id == request.auth.uid)
       );
-      allow write: if false; // backend only
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if hasRole('admin');
     }
 
-    // Contractor ratings — staff and contractors can read their own
+    // ---------- CONTRACTOR RATINGS ----------
     match /contractor_ratings/{ratingId} {
-      allow read: if isAuthenticated() && (
-        hasRole('contractor') ? resource.data.contractor_id == request.auth.uid : isStaff()
+      allow read: if isAuthed() && (
+        isStaff()
+        || (hasRole('contractor') && resource.data.contractor_id == request.auth.uid)
       );
-      allow write: if false; // backend only
+      allow create, update: if isStaff()
+        && request.resource.data.rated_by == request.auth.uid;
+      allow delete: if hasRole('admin');
     }
 
-    // Notifications — users see their own only
+    // ---------- NOTIFICATIONS ----------
+    // Users read / mark-read their own. Anyone can create a notification for another
+    // user (to support fan-out). The created notification must have read=false.
     match /notifications/{notifId} {
-      allow read: if isAuthenticated() && resource.data.user_id == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.user_id == request.auth.uid
+      allow read: if isAuthed() && resource.data.user_id == request.auth.uid;
+
+      allow create: if isAuthed()
+        && request.resource.data.read == false
+        && 'user_id' in request.resource.data;
+
+      allow update: if isAuthed() && resource.data.user_id == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'read_at']);
-      allow write: if false;
+
+      allow delete: if false;
     }
 
-    // Audit logs — staff read only, no client writes
+    // ---------- AUDIT LOGS ----------
+    // Anyone authenticated can append (write own user_id only). Staff can read.
     match /audit_logs/{logId} {
       allow read: if isStaff();
-      allow write: if false;
-    }
-
-    // Rooms — all authenticated users can read; only staff can write
-    match /rooms/{roomId} {
-      allow read: if isAuthenticated();
-      allow write: if isStaff();
+      allow create: if isAuthed()
+        && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
     }
   }
 }

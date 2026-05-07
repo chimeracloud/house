@@ -1,71 +1,59 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
 import toast from 'react-hot-toast';
+import { quotes } from '../lib/data';
+import { useAuthStore } from '../stores/authStore';
 
 export function useQuotes(params = {}) {
+  const role = useAuthStore((s) => s.profile?.role);
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
   return useQuery({
-    queryKey: ['quotes', params],
-    queryFn: async () => {
-      const { data } = await api.get('/quotes', { params });
-      return data.quotations;
+    queryKey: ['quotes', params, role, uid],
+    queryFn: () => {
+      if (role === 'contractor') return quotes.list({ ...params, contractorId: uid });
+      return quotes.list(params);
     },
-  });
-}
-
-export function useQuote(id) {
-  return useQuery({
-    queryKey: ['quote', id],
-    queryFn: async () => {
-      const { data } = await api.get(`/quotes/${id}`);
-      return data.quotation;
-    },
-    enabled: !!id,
+    enabled: !!uid,
   });
 }
 
 export function useSubmitQuote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload) => {
-      const { data } = await api.post('/quotes', payload);
-      return data.quotation;
-    },
+    mutationFn: (payload) => quotes.create(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['quotes'] });
       qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ['ticket'] });
       toast.success('Quotation submitted');
     },
-    onError: (err) => toast.error(err.response?.data?.error || 'Failed to submit quote'),
+    onError: (err) => toast.error(err.message || 'Failed to submit quote'),
   });
 }
 
 export function useApproveQuote() {
   const qc = useQueryClient();
+  const role = useAuthStore((s) => s.profile?.role);
   return useMutation({
-    mutationFn: async ({ id, notes }) => {
-      const { data } = await api.post(`/quotes/${id}/approve`, { notes });
-      return data;
-    },
+    mutationFn: ({ id, notes }) => quotes.approve(id, { currentRole: role, notes }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['quotes'] });
       qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ['ticket'] });
       toast.success('Quote approved');
     },
-    onError: (err) => toast.error(err.response?.data?.error || 'Approval failed'),
+    onError: (err) => toast.error(err.message || 'Approval failed'),
   });
 }
 
 export function useRejectQuote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, reason }) => {
-      const { data } = await api.post(`/quotes/${id}/reject`, { reason });
-      return data;
-    },
+    mutationFn: ({ id, reason }) => quotes.reject(id, reason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['quotes'] });
+      qc.invalidateQueries({ queryKey: ['ticket'] });
       toast.success('Quote rejected');
     },
-    onError: (err) => toast.error(err.response?.data?.error || 'Rejection failed'),
+    onError: (err) => toast.error(err.message || 'Rejection failed'),
   });
 }
