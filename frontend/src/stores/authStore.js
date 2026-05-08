@@ -3,14 +3,18 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  sendEmailVerification,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { firebaseAuth, db } from '../lib/firebase';
 
 const buildUser = (fbUser, profile) => {
   if (!fbUser) return null;
-  return { uid: fbUser.uid, email: fbUser.email, profile };
+  return { uid: fbUser.uid, email: fbUser.email, emailVerified: fbUser.emailVerified, profile };
 };
+
+const STAFF_ROLES = ['admin', 'property_owner', 'property_manager'];
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -26,6 +30,16 @@ export const useAuthStore = create((set, get) => ({
   isAdmin: false,
   isStaff: false,
 
+  /**
+   * Approval gating — set true once the user's profile has `is_active: true`.
+   * New tenants/contractors registering via the public form land with
+   * `is_active: false` and approval_status: 'pending' until admin approves.
+   * Existing seeded admins / users created via Firebase Console default to
+   * is_active = true (no explicit pending flow).
+   */
+  isApproved: false,
+  approvalStatus: null, // 'pending' | 'approved' | 'rejected' | null
+
   initAuth: () => {
     return onAuthStateChanged(firebaseAuth, async (fbUser) => {
       if (!fbUser) {
@@ -37,6 +51,8 @@ export const useAuthStore = create((set, get) => ({
           isAuthenticated: false,
           role: null,
           isOwner: false, isManager: false, isContractor: false, isAdmin: false, isStaff: false,
+          isApproved: false,
+          approvalStatus: null,
         });
         return;
       }
@@ -48,11 +64,16 @@ export const useAuthStore = create((set, get) => ({
         if (snap.exists()) {
           profile = { id: snap.id, ...snap.data() };
         } else {
-          // First sign-in: bootstrap a default profile. Role is 'resident'; staff promote later.
+          // First sign-in WITHOUT a registration form (e.g. user added via
+          // Firebase Console). Bootstrap a minimal placeholder profile that
+          // requires admin approval before granting any access.
           const seed = {
             full_name: fbUser.displayName || fbUser.email?.split('@')[0] || '',
+            email: fbUser.email || null,
             role: 'resident',
-            is_active: true,
+            is_active: false,
+            approval_status: 'pending',
+            registration_complete: false,
             created_at: serverTimestamp(),
             updated_at: serverTimestamp(),
           };
@@ -65,6 +86,9 @@ export const useAuthStore = create((set, get) => ({
       }
 
       const role = profile?.role || null;
+      const approvalStatus = profile?.approval_status || (profile?.is_active ? 'approved' : 'pending');
+      const isApproved = profile?.is_active === true;
+
       set({
         firebaseUser: fbUser,
         profile,
@@ -76,9 +100,19 @@ export const useAuthStore = create((set, get) => ({
         isManager: role === 'property_manager',
         isContractor: role === 'contractor',
         isAdmin: role === 'admin',
-        isStaff: ['property_manager', 'property_owner', 'admin'].includes(role),
+        isStaff: STAFF_ROLES.includes(role),
+        isApproved,
+        approvalStatus,
       });
     });
+  },
+
+  sendPasswordReset: (email) => sendPasswordResetEmail(firebaseAuth, email),
+
+  sendVerificationEmail: async () => {
+    const u = firebaseAuth.currentUser;
+    if (!u) throw new Error('Not signed in');
+    await sendEmailVerification(u);
   },
 
   login: async (email, password) => {
@@ -115,6 +149,7 @@ export const useAuthStore = create((set, get) => ({
     const snap = await getDoc(doc(db, 'profiles', fbUser.uid));
     const profile = snap.exists() ? { id: snap.id, ...snap.data() } : null;
     const role = profile?.role || null;
+    const approvalStatus = profile?.approval_status || (profile?.is_active ? 'approved' : 'pending');
     set({
       profile,
       user: buildUser(fbUser, profile),
@@ -123,7 +158,9 @@ export const useAuthStore = create((set, get) => ({
       isManager: role === 'property_manager',
       isContractor: role === 'contractor',
       isAdmin: role === 'admin',
-      isStaff: ['property_manager', 'property_owner', 'admin'].includes(role),
+      isStaff: STAFF_ROLES.includes(role),
+      isApproved: profile?.is_active === true,
+      approvalStatus,
     });
     return profile;
   },

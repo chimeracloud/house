@@ -1,26 +1,38 @@
 import { NavLink } from 'react-router-dom';
 import {
   HomeIcon, WrenchScrewdriverIcon, DocumentTextIcon,
-  UserGroupIcon, CurrencyPoundIcon, ChartBarIcon,
+  UserGroupIcon, BanknotesIcon, ChartBarIcon,
   BellIcon, Cog6ToothIcon, BuildingOfficeIcon,
+  UserPlusIcon,
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/authStore';
 import { useNotifications } from '../../hooks/useDashboard';
+import { profiles } from '../../lib/data';
 
 const allNav = [
-  { to: '/',              label: 'Dashboard',    icon: HomeIcon,                 roles: null },
-  { to: '/tickets',       label: 'Tickets',      icon: WrenchScrewdriverIcon,    roles: null },
-  { to: '/quotes',        label: 'Quotations',   icon: DocumentTextIcon,         roles: ['property_manager','property_owner','admin','contractor'] },
-  { to: '/contractors',   label: 'Contractors',  icon: UserGroupIcon,            roles: ['property_manager','property_owner','admin'] },
-  { to: '/payments',      label: 'Payments',     icon: CurrencyPoundIcon,        roles: ['property_manager','property_owner','admin'] },
-  { to: '/reports',       label: 'Reports',      icon: ChartBarIcon,             roles: ['property_manager','property_owner','admin'] },
+  { to: '/',                  label: 'Dashboard',    icon: HomeIcon,                 roles: null },
+  { to: '/tickets',           label: 'Tickets',      icon: WrenchScrewdriverIcon,    roles: null },
+  { to: '/quotes',            label: 'Quotations',   icon: DocumentTextIcon,         roles: ['property_manager','property_owner','admin','contractor'] },
+  { to: '/contractors',       label: 'Contractors',  icon: UserGroupIcon,            roles: ['property_manager','property_owner','admin'] },
+  { to: '/payments',          label: 'Payments',     icon: BanknotesIcon,            roles: ['property_manager','property_owner','admin'] },
+  { to: '/reports',           label: 'Reports',      icon: ChartBarIcon,             roles: ['property_manager','property_owner','admin'] },
+  { to: '/admin/approvals',   label: 'Approvals',    icon: UserPlusIcon,             roles: ['property_manager','property_owner','admin'], badge: 'pending' },
 ];
 
 export default function Sidebar({ mobile = false, onClose }) {
-  const { user, role } = useAuthStore();
+  const { user, role, isStaff } = useAuthStore();
   const { data: notifData } = useNotifications();
   const unread = notifData?.unread_count || 0;
+
+  const { data: pending } = useQuery({
+    queryKey: ['pending-approvals-count'],
+    queryFn: () => profiles.listPending(),
+    enabled: isStaff,
+    refetchInterval: 1000 * 60,
+  });
+  const pendingCount = pending?.length || 0;
 
   const nav = allNav.filter((n) => !n.roles || n.roles.includes(role));
 
@@ -42,23 +54,31 @@ export default function Sidebar({ mobile = false, onClose }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {nav.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            onClick={mobile ? onClose : undefined}
-            className={({ isActive }) => clsx(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-              isActive
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            )}
-          >
-            <Icon className="w-4.5 h-4.5 w-5 h-5 flex-shrink-0" />
-            {label}
-          </NavLink>
-        ))}
+        {nav.map(({ to, label, icon: Icon, badge }) => {
+          const badgeCount = badge === 'pending' ? pendingCount : 0;
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              onClick={mobile ? onClose : undefined}
+              className={({ isActive }) => clsx(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-brand-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              )}
+            >
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              <span className="flex-1">{label}</span>
+              {badgeCount > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-amber-950">
+                  {badgeCount > 99 ? '99+' : badgeCount}
+                </span>
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
 
       {/* User */}

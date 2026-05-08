@@ -779,29 +779,55 @@ export const profiles = {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
+  async listByRole(role) {
+    const snap = await getDocs(query(collection(db, 'profiles'), where('role', '==', role)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+
+  async listPending() {
+    const snap = await getDocs(query(
+      collection(db, 'profiles'),
+      where('approval_status', '==', 'pending'),
+    ));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((p) => p.registration_complete); // hide auto-bootstrapped placeholder profiles
+  },
+
   async get(id) {
     const snap = await getDoc(doc(db, 'profiles', id));
     return snap.exists() ? { id: snap.id, ...snap.data() } : null;
   },
 
-  async upsertSelf({ full_name, phone, company_name, avatar_url, role }) {
+  async upsertSelf(values) {
     const u = firebaseAuth.currentUser;
     if (!u) throw new Error('Not signed in');
     const ref = doc(db, 'profiles', u.uid);
     const snap = await getDoc(ref);
     const exists = snap.exists();
     const updates = { updated_at: serverTimestamp() };
-    if (full_name !== undefined) updates.full_name = full_name;
-    if (phone !== undefined) updates.phone = phone;
-    if (company_name !== undefined) updates.company_name = company_name;
-    if (avatar_url !== undefined) updates.avatar_url = avatar_url;
+    const allowed = [
+      'full_name', 'phone', 'company_name', 'avatar_url',
+      'id_number', 'marital_status', 'work_address',
+      'next_of_kin_name', 'next_of_kin_phone',
+      'medical_conditions',
+      'previous_address', 'previous_landlord_name', 'previous_landlord_phone',
+      'previous_was_owner', 'previous_landlord_contact_consent', 'previous_address_comment',
+      'monthly_nett_income',
+      'services',
+      'banking_account_holder', 'banking_bank', 'banking_account_number', 'banking_branch_code',
+    ];
+    for (const k of allowed) if (values[k] !== undefined) updates[k] = values[k];
 
     if (!exists) {
       await setDoc(ref, {
         ...updates,
         full_name: updates.full_name || u.displayName || u.email,
-        role: role || 'resident',
-        is_active: true,
+        email: u.email || null,
+        role: values.role || 'resident',
+        is_active: false,
+        approval_status: 'pending',
+        registration_complete: false,
         created_at: serverTimestamp(),
       });
     } else {
@@ -809,5 +835,174 @@ export const profiles = {
     }
     const after = await getDoc(ref);
     return { id: after.id, ...after.data() };
+  },
+
+  /** Admin only: approve a pending registration. */
+  async approve(uid, { role } = {}) {
+    const ref = doc(db, 'profiles', uid);
+    const updates = {
+      approval_status: 'approved',
+      is_active: true,
+      approved_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    };
+    if (role) updates.role = role;
+    await updateDoc(ref, updates);
+    await logAudit('user_approved', 'profile', uid, { role: role || null });
+    await notifyUser(uid, {
+      title: 'Account approved',
+      message: 'Your registration has been approved. You now have full access.',
+      type: 'account_approved',
+      entityType: 'profile',
+      entityId: uid,
+    });
+  },
+
+  async reject(uid, reason) {
+    const ref = doc(db, 'profiles', uid);
+    await updateDoc(ref, {
+      approval_status: 'rejected',
+      is_active: false,
+      rejection_reason: reason || null,
+      updated_at: serverTimestamp(),
+    });
+    await logAudit('user_rejected', 'profile', uid, { reason });
+    await notifyUser(uid, {
+      title: 'Account rejected',
+      message: reason ? `Your registration was rejected: ${reason}` : 'Your registration was rejected.',
+      type: 'account_rejected',
+      entityType: 'profile',
+      entityId: uid,
+    });
+  },
+
+  async setRole(uid, role) {
+    await updateDoc(doc(db, 'profiles', uid), { role, updated_at: serverTimestamp() });
+  },
+
+  async setActive(uid, is_active) {
+    await updateDoc(doc(db, 'profiles', uid), { is_active, updated_at: serverTimestamp() });
+  },
+};
+
+// =============== REGISTRATION ===============
+// Public registration writes the full profile in one go, plus a banking
+// subdoc (kept separate so the `profiles` doc isn't full of sensitive data).
+// References for contractors are stored as a subcollection.
+export const registration = {
+  async submit({
+    role,
+    common,         // { full_name, phone, id_number, avatar_url, work_address?, next_of_kin_name?, next_of_kin_phone?, medical_conditions? }
+    tenant,         // { marital_status, monthly_nett_income, previous_address, previous_was_owner, previous_landlord_name, previous_landlord_phone, previous_landlord_contact_consent, previous_address_comment, credit_check_consent }
+    contractor,     // { company_name, services }
+    references,     // [{ name, phone }] — contractor only
+    banking,        // { account_holder, bank, account_number, branch_code }
+  }) {
+    const u = firebaseAuth.currentUser;
+    if (!u) throw new Error('Not signed in');
+
+    const profileRef = doc(db, 'profiles', u.uid);
+    const profilePayload = {
+      email: u.email || null,
+      role,
+      is_active: false,
+      approval_status: 'pending',
+      registration_complete: true,
+      ...common,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    };
+
+    if (role === 'tenant') {
+      Object.assign(profilePayload, tenant || {});
+    } else if (role === 'contractor') {
+      Object.assign(profilePayload, contractor || {});
+    }
+
+    await setDoc(profileRef, profilePayload, { merge: true });
+
+    // Banking — separate doc, owner-only readable later via rules
+    if (banking && (banking.account_number || banking.bank)) {
+      await setDoc(doc(db, 'banking_details', u.uid), {
+        ...banking,
+        user_id: u.uid,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    }
+
+    // Contractor references
+    if (role === 'contractor' && Array.isArray(references) && references.length) {
+      const batch = writeBatch(db);
+      // Clear any existing first
+      const existing = await getDocs(collection(db, 'profiles', u.uid, 'references'));
+      existing.docs.forEach((d) => batch.delete(d.ref));
+      references.forEach((r) => {
+        if (!r.name?.trim()) return;
+        const ref = doc(collection(db, 'profiles', u.uid, 'references'));
+        batch.set(ref, { name: r.name.trim(), phone: r.phone?.trim() || null, created_at: serverTimestamp() });
+      });
+      await batch.commit();
+    }
+
+    await logAudit('registration_submitted', 'profile', u.uid, { role });
+    await notifyRole('admin', {
+      title: 'New registration to approve',
+      message: `${common.full_name || u.email} registered as ${role}`,
+      type: 'registration_submitted',
+      entityType: 'profile',
+      entityId: u.uid,
+    });
+    await notifyRole('property_owner', {
+      title: 'New registration to approve',
+      message: `${common.full_name || u.email} registered as ${role}`,
+      type: 'registration_submitted',
+      entityType: 'profile',
+      entityId: u.uid,
+    });
+
+    return { uid: u.uid };
+  },
+};
+
+// =============== ROOMS (CRUD) ===============
+export const roomsApi = {
+  async list() {
+    const snap = await getDocs(query(collection(db, 'rooms'), orderBy('number')));
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const tenantIds = list.map((r) => r.tenant_id).filter(Boolean);
+    const tenantMap = await loadProfileMap(tenantIds);
+    return list.map((r) => ({ ...r, tenant: r.tenant_id ? tenantMap[r.tenant_id] : null }));
+  },
+
+  async get(id) {
+    const snap = await getDoc(doc(db, 'rooms', id));
+    if (!snap.exists()) return null;
+    const data = { id: snap.id, ...snap.data() };
+    if (data.tenant_id) {
+      const tenantSnap = await getDoc(doc(db, 'profiles', data.tenant_id));
+      data.tenant = tenantSnap.exists() ? { id: tenantSnap.id, ...tenantSnap.data() } : null;
+    }
+    return data;
+  },
+
+  async create(payload) {
+    const ref = await addDoc(collection(db, 'rooms'), {
+      ...payload,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+    const snap = await getDoc(ref);
+    return { id: snap.id, ...snap.data() };
+  },
+
+  async update(id, updates) {
+    await updateDoc(doc(db, 'rooms', id), { ...updates, updated_at: serverTimestamp() });
+    const snap = await getDoc(doc(db, 'rooms', id));
+    return { id: snap.id, ...snap.data() };
+  },
+
+  async remove(id) {
+    await deleteDoc(doc(db, 'rooms', id));
   },
 };

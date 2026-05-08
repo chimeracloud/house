@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BuildingOfficeIcon } from '@heroicons/react/24/outline';
 import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
+import Register from './Register';
+import ForgotPassword from './ForgotPassword';
 
-export default function Login() {
+const TABS = [
+  { key: 'signin',   label: 'Sign In' },
+  { key: 'register', label: 'Register' },
+  { key: 'forgot',   label: 'Forgot Password' },
+];
+
+function SignInForm({ onSwitchTab }) {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
   const { login } = useAuthStore();
@@ -31,15 +39,78 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <div>
+        <label className="block text-xs text-slate-300 mb-1">Email address</label>
+        <input
+          type="email"
+          autoComplete="email"
+          className="auth-input"
+          placeholder="you@example.com"
+          {...register('email', { required: 'Email is required' })}
+        />
+        {errors.email && <p className="text-xs text-red-400 mt-1">{errors.email.message}</p>}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs text-slate-300">Password</label>
+          <button type="button" onClick={() => onSwitchTab('forgot')} className="text-[11px] text-brand-400 hover:underline">
+            Forgot?
+          </button>
+        </div>
+        <input
+          type="password"
+          autoComplete="current-password"
+          className="auth-input"
+          placeholder="••••••••"
+          {...register('password', { required: 'Password is required' })}
+        />
+        {errors.password && <p className="text-xs text-red-400 mt-1">{errors.password.message}</p>}
+      </div>
+
+      <button
+        type="submit"
+        disabled={loading}
+        className="auth-btn-primary text-sm w-full py-2.5"
+      >
+        {loading ? 'Signing in…' : 'Sign in'}
+      </button>
+
+      <p className="text-xs text-slate-500 text-center">
+        Don't have an account?{' '}
+        <button type="button" onClick={() => onSwitchTab('register')} className="text-brand-400 hover:underline">
+          Register
+        </button>
+      </p>
+    </form>
+  );
+}
+
+export default function Login() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = TABS.some((t) => t.key === searchParams.get('tab')) ? searchParams.get('tab') : 'signin';
+  const [tab, setTab] = useState(initialTab);
+
+  const switchTab = (next) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'signin') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 py-10">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-brand-900/20 to-transparent" />
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-brand-900/20 blur-3xl" />
         <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-brand-800/10 blur-3xl" />
       </div>
 
-      <div className="relative w-full max-w-sm">
-        <div className="flex items-center gap-3 mb-8">
+      <div className="relative w-full max-w-md">
+        {/* Brand header */}
+        <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
             <BuildingOfficeIcon className="w-6 h-6 text-white" />
           </div>
@@ -49,47 +120,24 @@ export default function Login() {
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-8 shadow-2xl">
-          <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
-          <p className="text-sm text-slate-400 mb-6">Enter your credentials to access the platform</p>
+        {/* Card */}
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 sm:p-8 shadow-2xl">
+          {/* Tabs */}
+          <div className="flex gap-1 p-1 rounded-lg bg-slate-900/60 mb-6">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => switchTab(t.key)}
+                className={`flex-1 text-xs font-medium py-2 rounded-md transition-colors ${tab === t.key ? 'bg-brand-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Email address</label>
-              <input
-                type="email"
-                autoComplete="email"
-                className="w-full rounded-lg bg-slate-900 border border-slate-600 text-slate-100 text-sm px-3 py-2.5 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                placeholder="you@example.com"
-                {...register('email', { required: 'Email is required' })}
-              />
-              {errors.email && <p className="text-xs text-red-400 mt-1">{errors.email.message}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
-              <input
-                type="password"
-                autoComplete="current-password"
-                className="w-full rounded-lg bg-slate-900 border border-slate-600 text-slate-100 text-sm px-3 py-2.5 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                placeholder="••••••••"
-                {...register('password', { required: 'Password is required' })}
-              />
-              {errors.password && <p className="text-xs text-red-400 mt-1">{errors.password.message}</p>}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-            >
-              {loading ? 'Signing in...' : 'Sign in'}
-            </button>
-          </form>
-
-          <p className="text-xs text-slate-500 text-center mt-6">
-            Need access? Contact your property manager.
-          </p>
+          {tab === 'signin' && <SignInForm onSwitchTab={switchTab} />}
+          {tab === 'register' && <Register onSwitchTab={switchTab} />}
+          {tab === 'forgot' && <ForgotPassword onSwitchTab={switchTab} />}
         </div>
 
         <p className="text-xs text-slate-600 text-center mt-6">

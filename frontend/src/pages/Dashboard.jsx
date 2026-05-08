@@ -27,8 +27,17 @@ const ACTION_LABELS = {
   inspection_failed: 'Re-work required',
 };
 
+const ROLE_LABELS = {
+  admin:            { label: 'Admin Dashboard',            badge: 'bg-red-500/15 text-red-600 dark:text-red-400 ring-1 ring-red-500/30' },
+  property_owner:   { label: 'Owner Dashboard',            badge: 'bg-purple-500/15 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/30' },
+  property_manager: { label: 'Manager Dashboard',          badge: 'bg-brand-500/15 text-brand-600 dark:text-brand-400 ring-1 ring-brand-500/30' },
+  contractor:       { label: 'Contractor Dashboard',       badge: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30' },
+  tenant:           { label: 'Tenant Dashboard',           badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30' },
+  resident:         { label: 'Resident Dashboard',         badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30' },
+};
+
 export default function Dashboard() {
-  const { user } = useAuthStore();
+  const { user, role } = useAuthStore();
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: activity } = useActivity(10);
   const { data: costs } = useCosts(6);
@@ -47,13 +56,17 @@ export default function Dashboard() {
   const s = stats || {};
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const roleMeta = ROLE_LABELS[role] || { label: 'Dashboard', badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/30' };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-          {greeting}, {user?.profile?.full_name?.split(' ')[0]} 👋
+        <span className={`inline-block text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${roleMeta.badge}`}>
+          {roleMeta.label}
+        </span>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white mt-2">
+          {greeting}, {user?.profile?.full_name?.split(' ')[0] || 'there'} 👋
         </h1>
         <p className="text-sm text-slate-500 mt-0.5">Here's what's happening at the property today.</p>
       </div>

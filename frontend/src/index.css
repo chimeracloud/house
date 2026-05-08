@@ -50,6 +50,21 @@
   .badge {
     @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
+
+  /* Dark auth surface — used on the login / register / forgot pages
+     because the auth screen background is fixed dark regardless of theme. */
+  .auth-input {
+    @apply w-full rounded-lg bg-slate-900 border border-slate-600 text-slate-100 text-sm px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500;
+  }
+  .auth-btn-primary {
+    @apply rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .auth-btn-secondary {
+    @apply rounded-lg bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-50;
+  }
+  .auth-btn-ghost {
+    @apply rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50;
+  }
 }
 
 /* Custom scrollbar */

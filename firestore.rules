@@ -28,31 +28,48 @@ service cloud.firestore {
       return inRoles(['admin', 'property_owner', 'property_manager']);
     }
 
+    function isOwnerOrAdmin() {
+      return inRoles(['admin', 'property_owner']);
+    }
+
     // ---------- PROFILES ----------
-    // - Any authenticated user can READ profiles (for displaying names on
-    //   tickets, quotes, comments, etc.). Sensitive fields could be split
-    //   into a private subcollection if needed later.
-    // - First-time users can create their OWN profile (role defaults to 'resident',
-    //   staff promote it later via Settings)
-    // - Self-updates can't change role or is_active
-    // - Staff can update role / is_active on any profile
     match /profiles/{userId} {
       allow read: if isAuthed();
 
-      // First sign-in self-creation. role MUST be 'resident' (or absent).
+      // First sign-in self-creation. role MUST start as one of the
+      // self-registerable roles (or absent).
       allow create: if isAuthed()
         && isSelf(userId)
-        && (!('role' in request.resource.data) || request.resource.data.role == 'resident');
+        && (
+          !('role' in request.resource.data)
+          || request.resource.data.role in ['resident', 'tenant', 'contractor', 'property_manager']
+        );
 
-      // Self update of own profile — no role / is_active change
+      // Self updates: cannot escalate role / approval / active flags.
       allow update: if isAuthed() && isSelf(userId)
         && !('role' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('is_active' in request.resource.data.diff(resource.data).affectedKeys());
+        && !('is_active' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('approval_status' in request.resource.data.diff(resource.data).affectedKeys());
 
-      // Staff can promote / deactivate
+      // Staff can promote / deactivate / set approval status.
       allow update: if isStaff();
 
       allow delete: if hasRole('admin');
+
+      // Subcollection: contractor references — readable by staff, writable by owner.
+      match /references/{refId} {
+        allow read: if isStaff() || isSelf(userId);
+        allow write: if isSelf(userId) || isStaff();
+      }
+    }
+
+    // ---------- BANKING DETAILS ----------
+    // Stored separately so they can be locked down independently of profile.
+    // Only the user themselves and owner/admin can read.
+    match /banking_details/{userId} {
+      allow read: if isAuthed() && (isSelf(userId) || isOwnerOrAdmin());
+      allow create, update: if isAuthed() && isSelf(userId);
+      allow delete: if isOwnerOrAdmin();
     }
 
     // ---------- ROOMS ----------
@@ -62,10 +79,6 @@ service cloud.firestore {
     }
 
     // ---------- TICKETS ----------
-    // Read: any authenticated user (so contractors can see jobs to bid on)
-    // Create: any authenticated user
-    // Update: staff or the assigned contractor (latter for status transitions like awaiting_inspection)
-    // Delete: admin only
     match /tickets/{ticketId} {
       allow read: if isAuthed();
       allow create: if isAuthed()
@@ -101,10 +114,6 @@ service cloud.firestore {
     }
 
     // ---------- QUOTATIONS ----------
-    // Read: contractor sees own; staff see all
-    // Create: any contractor (must set their uid as contractor_id)
-    // Update: staff (status changes); contractor can update their own draft fields
-    // Delete: admin
     match /quotations/{quoteId} {
       allow read: if isAuthed() && (
         isStaff()
@@ -125,8 +134,6 @@ service cloud.firestore {
     }
 
     // ---------- PAYMENTS ----------
-    // Read: contractor sees own; staff see all
-    // Create / authorize / mark-paid: staff only
     match /payments/{paymentId} {
       allow read: if isAuthed() && (
         isStaff()
@@ -149,8 +156,6 @@ service cloud.firestore {
     }
 
     // ---------- NOTIFICATIONS ----------
-    // Users read / mark-read their own. Anyone can create a notification for another
-    // user (to support fan-out). The created notification must have read=false.
     match /notifications/{notifId} {
       allow read: if isAuthed() && resource.data.user_id == request.auth.uid;
 
@@ -165,12 +170,26 @@ service cloud.firestore {
     }
 
     // ---------- AUDIT LOGS ----------
-    // Anyone authenticated can append (write own user_id only). Staff can read.
     match /audit_logs/{logId} {
       allow read: if isStaff();
       allow create: if isAuthed()
         && request.resource.data.user_id == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // ---------- DOCUMENTS (lease, contracts, signed forms) ----------
+    // Placeholder collection — future home for lease agreements,
+    // contractor contracts, and house-rules acknowledgements.
+    match /documents/{docId} {
+      allow read: if isAuthed() && (
+        isStaff()
+        || (resource.data.parties is list && request.auth.uid in resource.data.parties)
+      );
+      allow create: if isStaff()
+        && request.resource.data.created_by == request.auth.uid;
+      allow update: if isStaff()
+        || (resource.data.parties is list && request.auth.uid in resource.data.parties);
+      allow delete: if hasRole('admin');
     }
   }
 }

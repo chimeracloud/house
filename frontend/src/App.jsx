@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
+import PendingApproval from './pages/PendingApproval';
 import Dashboard from './pages/Dashboard';
 import Tickets from './pages/Tickets';
 import TicketDetail from './pages/TicketDetail';
@@ -12,6 +13,7 @@ import Payments from './pages/Payments';
 import Reports from './pages/Reports';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
+import Approvals from './pages/admin/Approvals';
 
 function FullScreenSpinner() {
   return (
@@ -24,16 +26,38 @@ function FullScreenSpinner() {
 function RequireAuth({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const loading = useAuthStore((s) => s.loading);
+  const isApproved = useAuthStore((s) => s.isApproved);
   if (loading) return <FullScreenSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isApproved) return <Navigate to="/pending-approval" replace />;
   return children;
 }
 
 function RequireGuest({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const loading = useAuthStore((s) => s.loading);
+  const isApproved = useAuthStore((s) => s.isApproved);
   if (loading) return null;
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated) {
+    if (!isApproved) return <Navigate to="/pending-approval" replace />;
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
+function RequirePending({ children }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const loading = useAuthStore((s) => s.loading);
+  const isApproved = useAuthStore((s) => s.isApproved);
+  if (loading) return <FullScreenSpinner />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (isApproved) return <Navigate to="/" replace />;
+  return children;
+}
+
+function RequireStaff({ children }) {
+  const isStaff = useAuthStore((s) => s.isStaff);
+  if (!isStaff) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -57,6 +81,14 @@ export default function App() {
           }
         />
         <Route
+          path="/pending-approval"
+          element={
+            <RequirePending>
+              <PendingApproval />
+            </RequirePending>
+          }
+        />
+        <Route
           path="/"
           element={
             <RequireAuth>
@@ -73,6 +105,7 @@ export default function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="admin/approvals" element={<RequireStaff><Approvals /></RequireStaff>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
