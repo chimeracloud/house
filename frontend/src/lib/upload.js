@@ -14,10 +14,10 @@ const detectFileType = (mimeType, fileName) => {
   return 'document';
 };
 
-export async function uploadTicketAttachment(ticketId, file, { label } = {}) {
+export async function uploadTicketAttachment(ticketId, file, { label, phase = 'before' } = {}) {
   if (!firebaseAuth.currentUser) throw new Error('Not signed in');
 
-  const path = `tickets/${ticketId}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+  const path = `tickets/${ticketId}/${phase}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
   const ref = storageRef(storage, path);
 
   await uploadBytes(ref, file, { contentType: file.type });
@@ -30,5 +30,6 @@ export async function uploadTicketAttachment(ticketId, file, { label } = {}) {
     file_type: detectFileType(file.type, file.name),
     label: label || null,
     mime_type: file.type || null,
+    phase,
   });
 }

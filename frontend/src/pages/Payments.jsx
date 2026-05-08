@@ -27,7 +27,7 @@ export default function Payments() {
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Payments</h1>
           <p className="text-sm text-slate-500">
             {data?.length ?? 0} records
-            {totalPending > 0 && ` · £${totalPending.toFixed(2)} pending payment`}
+            {totalPending > 0 && ` · R ${totalPending.toFixed(2)} pending payment`}
           </p>
         </div>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input w-auto">
@@ -71,7 +71,7 @@ export default function Payments() {
                     {p.contractor?.full_name || '—'}
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
-                    £{Number(p.amount).toFixed(2)}
+                    R {Number(p.amount).toFixed(2)}
                   </td>
                   <td className="px-4 py-3"><Badge value={p.status} /></td>
                   <td className="px-4 py-3 hidden md:table-cell text-xs text-slate-500 capitalize">

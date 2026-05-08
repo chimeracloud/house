@@ -284,7 +284,7 @@ export const tickets = {
     return { status: newStatus };
   },
 
-  async addAttachment(ticketId, { file_name, file_url, file_path, file_type, label, mime_type }) {
+  async addAttachment(ticketId, { file_name, file_url, file_path, file_type, label, mime_type, phase }) {
     const u = firebaseAuth.currentUser;
     if (!u) throw new Error('Not signed in');
     const ref = await addDoc(collection(db, 'tickets', ticketId, 'attachments'), {
@@ -294,6 +294,7 @@ export const tickets = {
       file_type: file_type || 'image',
       label: label || null,
       mime_type: mime_type || null,
+      phase: phase || 'before', // 'before' = issue photo, 'after' = completion photo
       uploaded_by: u.uid,
       created_at: serverTimestamp(),
     });
@@ -386,7 +387,7 @@ export const quotes = {
     await logAudit('quote_submitted', 'quotation', ref.id, { ticket_id, total_amount });
     await notifyRole('property_manager', {
       title: 'New Quote Received',
-      message: `£${total_amount.toFixed(2)} quote for "${ticket.title}"`,
+      message: `R ${total_amount.toFixed(2)} quote for "${ticket.title}"`,
       type: 'quote_submitted', entityType: 'quotation', entityId: ref.id,
     });
 
@@ -433,7 +434,7 @@ export const quotes = {
     if (needsOwnerApproval) {
       await notifyRole('property_owner', {
         title: 'Quote Approval Required',
-        message: `£${q.total_amount.toFixed(2)} requires your approval`,
+        message: `R ${q.total_amount.toFixed(2)} requires your approval`,
         type: 'quote_pending_owner', entityType: 'quotation', entityId: id,
       });
     }
@@ -537,7 +538,7 @@ export const payments = {
 
     await notifyUser(payment.contractor_id, {
       title: 'Payment Authorized',
-      message: `Payment of £${Number(payment.amount).toFixed(2)} for "${payment.ticket_title}" has been authorized`,
+      message: `Payment of R ${Number(payment.amount).toFixed(2)} for "${payment.ticket_title}" has been authorized`,
       type: 'payment_authorized', entityType: 'payment', entityId: id,
     });
     await logAudit('payment_authorized', 'payment', id);
@@ -558,7 +559,7 @@ export const payments = {
     });
     await notifyUser(payment.contractor_id, {
       title: 'Payment Sent',
-      message: `Your payment of £${Number(payment.amount).toFixed(2)} has been sent`,
+      message: `Your payment of R ${Number(payment.amount).toFixed(2)} has been sent`,
       type: 'payment_sent', entityType: 'payment', entityId: id,
     });
     await logAudit('payment_paid', 'payment', id);

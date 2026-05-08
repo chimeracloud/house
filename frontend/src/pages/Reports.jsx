@@ -39,8 +39,8 @@ export default function Reports() {
       ['Total Tickets', stats?.tickets?.total || 0],
       ['Active Tickets', stats?.tickets?.active || 0],
       ['Overdue Tickets', stats?.tickets?.overdue || 0],
-      ['Monthly Spend (£)', stats?.finances?.monthly_spend?.toFixed(2) || '0'],
-      ['Pending Payments (£)', stats?.finances?.pending_payments?.toFixed(2) || '0'],
+      ['Monthly Spend (R)', stats?.finances?.monthly_spend?.toFixed(2) || '0'],
+      ['Pending Payments (R)', stats?.finances?.pending_payments?.toFixed(2) || '0'],
       ['Registered Contractors', stats?.contractors?.total || 0],
       ['Pending Approvals', stats?.approvals?.pending || 0],
       ...Object.entries(stats?.tickets?.by_status || {}).map(([s, v]) => [`Status: ${s}`, v]),
@@ -81,7 +81,7 @@ export default function Reports() {
         <StatCard label="Overdue" value={stats?.tickets?.overdue ?? 0} color="red" />
         <StatCard
           label="Total Spend"
-          value={`£${(stats?.finances?.monthly_spend ?? 0).toLocaleString('en-GB', { maximumFractionDigits: 0 })}`}
+          value={`R ${(stats?.finances?.monthly_spend ?? 0).toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`}
           color="green"
         />
       </div>
@@ -99,9 +99,9 @@ export default function Reports() {
                   tickFormatter={(v) => format(new Date(v + '-01'), 'MMM yy')}
                   tick={{ fontSize: 11, fill: '#94a3b8' }}
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `£${v}`} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `R ${v}`} />
                 <Tooltip
-                  formatter={(v) => [`£${Number(v).toFixed(2)}`, 'Total Spend']}
+                  formatter={(v) => [`R ${Number(v).toFixed(2)}`, 'Total Spend']}
                   contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#f1f5f9' }}
                 />
                 <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} />

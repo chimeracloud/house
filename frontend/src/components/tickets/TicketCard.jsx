@@ -33,18 +33,25 @@ export default function TicketCard({ ticket }) {
             <p className="text-xs text-slate-500 mt-1 line-clamp-2">{ticket.description}</p>
           </div>
 
-          {ticket.attachments?.some((a) => a.file_type === 'image') && (
-            <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-700">
-              <img
-                src={ticket.attachments.find((a) => a.file_type === 'image')?.file_url}
-                alt=""
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center"><svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>';
-                }}
-              />
-            </div>
-          )}
+          {(() => {
+            const beforeImg = ticket.attachments?.find(
+              (a) => a.file_type === 'image' && (a.phase || 'before') === 'before'
+            );
+            const anyImg = beforeImg || ticket.attachments?.find((a) => a.file_type === 'image');
+            if (!anyImg) return null;
+            return (
+              <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-700">
+                <img
+                  src={anyImg.file_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center"><svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>';
+                  }}
+                />
+              </div>
+            );
+          })()}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-xs text-slate-500">

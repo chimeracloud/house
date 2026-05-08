@@ -62,7 +62,7 @@ export default function Quotes() {
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span className="font-semibold text-slate-900 dark:text-white text-base">
-                      £{Number(q.total_amount).toFixed(2)}
+                      R {Number(q.total_amount).toFixed(2)}
                     </span>
                     <span>By: {q.contractor?.full_name} {q.contractor?.company_name && `(${q.contractor.company_name})`}</span>
                     {q.estimated_days && <span>{q.estimated_days} day{q.estimated_days > 1 ? 's' : ''} estimated</span>}
@@ -112,8 +112,8 @@ export default function Quotes() {
                             <span className="ml-1 text-slate-400 capitalize">({item.item_type})</span>
                           </td>
                           <td className="py-1 text-center">{item.quantity}</td>
-                          <td className="py-1 text-right">£{Number(item.unit_price).toFixed(2)}</td>
-                          <td className="py-1 text-right font-medium text-slate-900 dark:text-white">£{Number(item.total).toFixed(2)}</td>
+                          <td className="py-1 text-right">R {Number(item.unit_price).toFixed(2)}</td>
+                          <td className="py-1 text-right font-medium text-slate-900 dark:text-white">R {Number(item.total).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>

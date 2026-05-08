@@ -83,7 +83,7 @@ export default function Dashboard() {
         />
         <StatCard
           label="Monthly Spend"
-          value={`£${(s.finances?.monthly_spend ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+          value={`R ${(s.finances?.monthly_spend ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           icon={CurrencyPoundIcon}
           color="purple"
           subtext="last 30 days"
@@ -132,9 +132,9 @@ export default function Dashboard() {
                   tickFormatter={(v) => format(new Date(v + '-01'), 'MMM')}
                   tick={{ fontSize: 11, fill: '#94a3b8' }}
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `£${v}`} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `R ${v}`} />
                 <Tooltip
-                  formatter={(v) => [`£${Number(v).toFixed(2)}`, 'Spend']}
+                  formatter={(v) => [`R ${Number(v).toFixed(2)}`, 'Spend']}
                   labelFormatter={(l) => format(new Date(l + '-01'), 'MMMM yyyy')}
                   contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#f1f5f9' }}
                 />

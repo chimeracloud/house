@@ -5,18 +5,22 @@ import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   ArrowLeftIcon, PaperClipIcon, ChatBubbleLeftIcon,
-  CheckCircleIcon, XCircleIcon, PlusIcon, ArrowUpTrayIcon,
+  CheckCircleIcon, XCircleIcon, PlusIcon, CameraIcon, ArrowUpTrayIcon,
   MapPinIcon, CalendarIcon, UserIcon,
 } from '@heroicons/react/24/outline';
 import Badge from '../components/ui/Badge';
 import Spinner from '../components/ui/Spinner';
 import Modal from '../components/ui/Modal';
 import SubmitQuoteModal from '../components/quotes/SubmitQuoteModal';
+import CompleteJobModal from '../components/tickets/CompleteJobModal';
 import { useTicket, useAddComment, useUpdateTicket, useSignOff } from '../hooks/useTickets';
 import { useApproveQuote, useRejectQuote } from '../hooks/useQuotes';
 import { useAuthStore } from '../stores/authStore';
 import { uploadTicketAttachment } from '../lib/upload';
 
+// Status transitions a manager/owner can drive directly. The contractor's
+// "in_progress → awaiting_inspection" transition is handled separately via
+// the Complete Job modal so it can require completion photos.
 const STATUS_TRANSITIONS = {
   pending:              ['awaiting_quote', 'rejected'],
   awaiting_quote:       ['approved', 'rejected'],
@@ -32,8 +36,10 @@ export default function TicketDetail() {
   const { id } = useParams();
   const { data: ticket, isLoading } = useTicket(id);
   const { isStaff, isContractor, isOwner, user } = useAuthStore();
+  const myUid = user?.uid;
   const [comment, setComment] = useState('');
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
   const [signoffOpen, setSignoffOpen] = useState(false);
   const [signoffNotes, setSignoffNotes] = useState('');
   const [signoffPassed, setSignoffPassed] = useState(true);
@@ -46,20 +52,20 @@ export default function TicketDetail() {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
 
-  const handleUpload = async (event) => {
+  const handleUpload = (phase) => async (event) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     setUploading(true);
     try {
       for (const file of files) {
-        await uploadTicketAttachment(id, file);
+        await uploadTicketAttachment(id, file, { phase });
       }
       qc.invalidateQueries({ queryKey: ['ticket', id] });
-      toast.success(`${files.length} file${files.length > 1 ? 's' : ''} uploaded`);
+      toast.success(`${files.length} photo${files.length > 1 ? 's' : ''} uploaded`);
     } catch (err) {
       const code = err?.code || '';
       if (code === 'storage/unauthorized' || code === 'storage/object-not-found' || /storage/i.test(err.message || '')) {
-        toast.error('Storage upload failed. Make sure Firebase Storage is enabled (requires Blaze plan).');
+        toast.error('Storage upload failed — enable Firebase Storage (requires Blaze plan).');
       } else {
         toast.error(err.message || 'Upload failed');
       }
@@ -115,21 +121,32 @@ export default function TicketDetail() {
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
-            {isContractor && ['approved', 'in_progress'].includes(ticket.status) && (
+            {isContractor && ['approved', 'pending', 'awaiting_quote'].includes(ticket.status) && (
               <button onClick={() => setQuoteOpen(true)} className="btn-secondary text-xs">
                 <PlusIcon className="w-3.5 h-3.5" /> Submit Quote
               </button>
             )}
+
+            {/* Contractor's "I'm done" flow — requires after photos */}
+            {isContractor && ticket.status === 'in_progress' && ticket.assigned_contractor?.id === myUid && (
+              <button onClick={() => setCompleteOpen(true)} className="btn-primary text-xs">
+                <CameraIcon className="w-3.5 h-3.5" /> Mark Complete
+              </button>
+            )}
+
             {canTransition && ticket.status === 'awaiting_inspection' && (
               <button onClick={() => setSignoffOpen(true)} className="btn-primary text-xs">
                 <CheckCircleIcon className="w-3.5 h-3.5" /> Sign Off
               </button>
             )}
-            {canTransition && transitions.map((s) => (
-              <button key={s} onClick={() => handleStatusChange(s)} className="btn-secondary text-xs">
-                → {s.replace('_', ' ')}
-              </button>
-            ))}
+            {canTransition && transitions
+              .filter((s) => !(ticket.status === 'in_progress' && s === 'awaiting_inspection'))
+              .map((s) => (
+                <button key={s} onClick={() => handleStatusChange(s)} className="btn-secondary text-xs">
+                  → {s.replace('_', ' ')}
+                </button>
+              ))
+            }
           </div>
         </div>
 
@@ -160,7 +177,7 @@ export default function TicketDetail() {
             </span>
           )}
           {ticket.estimated_cost && (
-            <span>Estimated: £{Number(ticket.estimated_cost).toFixed(2)}</span>
+            <span>Estimated: R {Number(ticket.estimated_cost).toFixed(2)}</span>
           )}
         </div>
       </div>
@@ -168,33 +185,20 @@ export default function TicketDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: Attachments + Quotes + Comments */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Attachments */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <PaperClipIcon className="w-4 h-4" /> Attachments ({ticket.attachments?.length || 0})
+          {/* Photos: Before / After */}
+          <PhotoSection
+            ticket={ticket}
+            uploading={uploading}
+            onUpload={handleUpload}
+          />
+
+          {/* Other (non-image) attachments */}
+          {ticket.attachments?.some((a) => a.file_type !== 'image') && (
+            <div className="card p-5">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                <PaperClipIcon className="w-4 h-4" /> Documents
               </h2>
-              <label className="btn-secondary text-xs cursor-pointer">
-                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                {uploading ? 'Uploading…' : 'Upload'}
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*,video/*,application/pdf"
-                  className="hidden"
-                  onChange={handleUpload}
-                  disabled={uploading}
-                />
-              </label>
-            </div>
-            {ticket.attachments?.length ? (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {ticket.attachments.filter((a) => a.file_type === 'image').map((att) => (
-                  <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
-                    className="aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-700 block hover:opacity-80 transition-opacity">
-                    <img src={att.file_url} alt={att.label || att.file_name} className="w-full h-full object-cover" />
-                  </a>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {ticket.attachments.filter((a) => a.file_type !== 'image').map((att) => (
                   <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
                     className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-brand-400 transition-colors block">
@@ -204,10 +208,8 @@ export default function TicketDetail() {
                   </a>
                 ))}
               </div>
-            ) : (
-              <p className="text-xs text-slate-400 text-center py-4">No attachments yet</p>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Quotes */}
           {ticket.quotations?.length > 0 && (
@@ -223,7 +225,7 @@ export default function TicketDetail() {
                         <p className="text-sm font-medium text-slate-900 dark:text-white">
                           {q.contractor?.full_name} {q.contractor?.company_name && `· ${q.contractor.company_name}`}
                         </p>
-                        <p className="text-lg font-bold text-brand-600">£{Number(q.total_amount).toFixed(2)}</p>
+                        <p className="text-lg font-bold text-brand-600">R {Number(q.total_amount).toFixed(2)}</p>
                       </div>
                       <Badge value={q.status} />
                     </div>
@@ -232,7 +234,7 @@ export default function TicketDetail() {
                         {q.items.map((item) => (
                           <div key={item.id} className="flex justify-between">
                             <span>{item.description}</span>
-                            <span>£{Number(item.total).toFixed(2)}</span>
+                            <span>R {Number(item.total).toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
@@ -356,6 +358,13 @@ export default function TicketDetail() {
         />
       )}
 
+      {/* Mark complete (contractor) — requires after photos */}
+      <CompleteJobModal
+        open={completeOpen}
+        onClose={() => setCompleteOpen(false)}
+        ticket={ticket}
+      />
+
       {/* Sign-off modal */}
       <Modal open={signoffOpen} onClose={() => setSignoffOpen(false)} title="Inspection Sign-off">
         <div className="space-y-4">
@@ -396,6 +405,97 @@ export default function TicketDetail() {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Photo gallery: WAS (issue) photos and NOW (completion) photos side-by-side.
+// Anyone can upload "before" photos; "after" uploads also have a button here
+// for staff/contractor convenience but the canonical contractor completion
+// path is the CompleteJobModal which forces an after-photo upload.
+// ----------------------------------------------------------------------------
+function PhotoSection({ ticket, uploading, onUpload }) {
+  const images = (ticket.attachments || []).filter((a) => a.file_type === 'image');
+  const before = images.filter((a) => (a.phase || 'before') === 'before');
+  const after = images.filter((a) => a.phase === 'after');
+
+  const Gallery = ({ items, emptyText }) => (
+    items.length ? (
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {items.map((att) => (
+          <a
+            key={att.id}
+            href={att.file_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-700 block hover:opacity-80 transition-opacity"
+          >
+            <img src={att.file_url} alt={att.label || att.file_name} className="w-full h-full object-cover" />
+          </a>
+        ))}
+      </div>
+    ) : (
+      <p className="text-xs text-slate-400 text-center py-6">{emptyText}</p>
+    )
+  );
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <PaperClipIcon className="w-4 h-4" /> Photos
+        </h2>
+        {uploading && <span className="text-xs text-slate-500">Uploading…</span>}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {/* Before / WAS */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Issue (WAS)
+            </h3>
+            <label className="btn-ghost text-xs cursor-pointer py-1 px-2">
+              <CameraIcon className="w-3 h-3" />
+              Add
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={onUpload('before')}
+                disabled={uploading}
+              />
+            </label>
+          </div>
+          <Gallery items={before} emptyText="No issue photos yet" />
+        </div>
+
+        {/* After / NOW */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Completion (NOW)
+            </h3>
+            <label className="btn-ghost text-xs cursor-pointer py-1 px-2">
+              <CameraIcon className="w-3 h-3" />
+              Add
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={onUpload('after')}
+                disabled={uploading}
+              />
+            </label>
+          </div>
+          <Gallery items={after} emptyText="No completion photos yet" />
+        </div>
+      </div>
     </div>
   );
 }

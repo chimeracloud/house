@@ -83,7 +83,7 @@ export default function SubmitQuoteModal({ open, onClose, ticketId, ticketTitle 
                   <input
                     type="number" step="0.01" min="0"
                     className="input text-xs"
-                    placeholder="£ unit"
+                    placeholder="R unit"
                     {...register(`items.${idx}.unit_price`, { required: true, min: 0 })}
                   />
                 </div>
@@ -100,7 +100,7 @@ export default function SubmitQuoteModal({ open, onClose, ticketId, ticketTitle 
 
           <div className="flex justify-end mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">
-              Total: <span className="text-brand-600">£{total.toFixed(2)}</span>
+              Total: <span className="text-brand-600">R {total.toFixed(2)}</span>
             </p>
           </div>
         </div>
