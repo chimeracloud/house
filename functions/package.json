@@ -1,0 +1,26 @@
+{
+  "name": "rosy-morn-functions",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions for Rosy Morn — VerifyNow integration, email outbox triggers.",
+  "main": "src/index.js",
+  "type": "module",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "lint": "eslint src/",
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.8.0",
+    "firebase-functions": "^6.4.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0"
+  },
+  "private": true
+}

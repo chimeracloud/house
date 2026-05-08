@@ -147,7 +147,7 @@ function PersonRow({ user, onToggleActive }) {
             <Field label="Next of Kin" value={user.next_of_kin_name && `${user.next_of_kin_name}${user.next_of_kin_phone ? ` · ${user.next_of_kin_phone}` : ''}`} />
             <Field label="Medical" value={user.medical_conditions} />
             <Field label="Previous Address" value={user.previous_address} />
-            <Field label="Credit Check Score" value={user.credit_score ?? null} />
+            <Field label="Verification Score" value={user.verification_score != null ? `${user.verification_score}/100` : null} />
           </dl>
         </div>
       )}

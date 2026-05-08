@@ -13,6 +13,7 @@ import Payments from './pages/Payments';
 import Reports from './pages/Reports';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
+import Documents from './pages/Documents';
 import Approvals from './pages/admin/Approvals';
 
 function FullScreenSpinner() {
@@ -104,6 +105,7 @@ export default function App() {
           <Route path="payments" element={<Payments />} />
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />
+          <Route path="documents" element={<Documents />} />
           <Route path="settings" element={<Settings />} />
           <Route path="admin/approvals" element={<RequireStaff><Approvals /></RequireStaff>} />
         </Route>

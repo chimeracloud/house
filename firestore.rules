@@ -177,19 +177,36 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // ---------- DOCUMENTS (lease, contracts, signed forms) ----------
-    // Placeholder collection — future home for lease agreements,
-    // contractor contracts, and house-rules acknowledgements.
+    // ---------- DOCUMENTS (signed acknowledgements: house rules, lease, etc) ----------
+    // Each user signs their own ack — id pattern is `{user_id}_{doc_id}`.
+    // - User can read/write their own ack record.
+    // - Staff can read everyone's acks (for compliance + audit).
+    // - Nobody can delete a signed ack (the signature is the audit trail).
     match /documents/{docId} {
       allow read: if isAuthed() && (
         isStaff()
-        || (resource.data.parties is list && request.auth.uid in resource.data.parties)
+        || resource.data.user_id == request.auth.uid
       );
-      allow create: if isStaff()
-        && request.resource.data.created_by == request.auth.uid;
-      allow update: if isStaff()
-        || (resource.data.parties is list && request.auth.uid in resource.data.parties);
-      allow delete: if hasRole('admin');
+      allow create: if isAuthed()
+        && request.resource.data.user_id == request.auth.uid;
+      allow update: if isAuthed()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ---------- VERIFICATIONS (VerifyNow results, written by Cloud Function) ----------
+    // Only staff can read; client-side writes blocked (functions use Admin SDK).
+    match /verifications/{userId} {
+      allow read: if isStaff() || isSelf(userId);
+      allow write: if false;
+    }
+
+    // ---------- MAIL OUTBOX (Trigger Email Extension) ----------
+    // Cloud Function writes outgoing emails here; the firestore-send-email
+    // extension picks them up. Nothing on the client should read these.
+    match /mail/{mailId} {
+      allow read, write: if false;
     }
   }
 }

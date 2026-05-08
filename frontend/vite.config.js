@@ -15,7 +15,7 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'query-vendor': ['@tanstack/react-query', 'zustand'],
-          'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+          'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage', 'firebase/functions'],
           'ui-vendor': ['@headlessui/react', '@heroicons/react'],
           'chart-vendor': ['recharts'],
           'form-vendor': ['react-hook-form', 'react-hot-toast'],

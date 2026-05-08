@@ -3,7 +3,7 @@ import {
   HomeIcon, WrenchScrewdriverIcon, DocumentTextIcon,
   UserGroupIcon, BanknotesIcon, ChartBarIcon,
   BellIcon, Cog6ToothIcon, BuildingOfficeIcon,
-  UserPlusIcon,
+  UserPlusIcon, DocumentCheckIcon,
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
@@ -18,6 +18,7 @@ const allNav = [
   { to: '/contractors',       label: 'Contractors',  icon: UserGroupIcon,            roles: ['property_manager','property_owner','admin'] },
   { to: '/payments',          label: 'Payments',     icon: BanknotesIcon,            roles: ['property_manager','property_owner','admin'] },
   { to: '/reports',           label: 'Reports',      icon: ChartBarIcon,             roles: ['property_manager','property_owner','admin'] },
+  { to: '/documents',         label: 'My Documents', icon: DocumentCheckIcon,        roles: ['tenant','resident','property_manager'] },
   { to: '/admin/approvals',   label: 'Approvals',    icon: UserPlusIcon,             roles: ['property_manager','property_owner','admin'], badge: 'pending' },
 ];
 

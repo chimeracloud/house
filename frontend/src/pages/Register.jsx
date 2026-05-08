@@ -10,6 +10,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { firebaseAuth, storage } from '../lib/firebase';
 import { registration } from '../lib/data';
+import { runVerifyTenant } from '../lib/verification';
 
 const ROLE_OPTIONS = [
   { value: 'tenant',     label: 'Tenant',     description: 'I want to rent a room at this property' },
@@ -135,6 +136,19 @@ export default function Register({ onSwitchTab }) {
           branch_code: values.banking_branch_code || null,
         } : null,
       });
+
+      // 5. Trigger VerifyNow checks for tenants. Best-effort — if the function
+      //    isn't deployed (Blaze not enabled yet) we just continue and let
+      //    staff run the check manually from the Approvals page.
+      if (role === 'tenant') {
+        try {
+          await runVerifyTenant(uid);
+          toast.success('Identity & credit checks completed.');
+        } catch (verifyErr) {
+          console.warn('[register] VerifyNow not available:', verifyErr.message);
+          toast('Submission saved — staff will run identity checks during review.', { icon: 'ℹ️' });
+        }
+      }
 
       // Sign out so they don't accidentally see the app while pending — they
       // can sign back in and see the "pending approval" screen.
