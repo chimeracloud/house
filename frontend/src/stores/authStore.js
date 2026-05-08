@@ -6,7 +6,7 @@ import {
   sendPasswordResetEmail,
   sendEmailVerification,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { firebaseAuth, db } from '../lib/firebase';
 
 const buildUser = (fbUser, profile) => {
@@ -60,27 +60,34 @@ export const useAuthStore = create((set, get) => ({
       let profile = null;
       try {
         const ref = doc(db, 'profiles', fbUser.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          profile = { id: snap.id, ...snap.data() };
-        } else {
+        // Use a transaction so the read-then-write is atomic. Without this,
+        // sign-in races the Register form's setDoc (both fire from the same
+        // onAuthStateChanged event) and either side can clobber the other,
+        // sometimes leaving the doc empty if rules transiently reject.
+        const seedData = {
+          full_name: fbUser.displayName || fbUser.email?.split('@')[0] || '',
+          email: fbUser.email || null,
+          role: 'resident',
+          is_active: false,
+          approval_status: 'pending',
+          registration_complete: false,
+          created_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+        };
+        const txResult = await runTransaction(db, async (tx) => {
+          const fresh = await tx.get(ref);
+          if (fresh.exists()) {
+            return { existed: true, data: fresh.data() };
+          }
           // First sign-in WITHOUT a registration form (e.g. user added via
           // Firebase Console). Bootstrap a minimal placeholder profile that
-          // requires admin approval before granting any access.
-          const seed = {
-            full_name: fbUser.displayName || fbUser.email?.split('@')[0] || '',
-            email: fbUser.email || null,
-            role: 'resident',
-            is_active: false,
-            approval_status: 'pending',
-            registration_complete: false,
-            created_at: serverTimestamp(),
-            updated_at: serverTimestamp(),
-          };
-          await setDoc(ref, seed);
-          const after = await getDoc(ref);
-          profile = after.exists() ? { id: after.id, ...after.data() } : null;
-        }
+          // requires admin approval before granting access.
+          // merge: true keeps any data a concurrent Register form write may
+          // already have set safe.
+          tx.set(ref, seedData, { merge: true });
+          return { existed: false, data: seedData };
+        });
+        profile = { id: ref.id, ...txResult.data };
       } catch (err) {
         console.warn('[auth] Failed to load/create profile:', err.message);
       }
